@@ -1,7 +1,8 @@
 # History
 
-## 0.2.0-dev - 2026-10-24
+## 0.2.0 - 2026-10-24
 
+- First published release: images `mrsnille/label-service:0.2.0` and `mrsnille/label-service-cups:0.2.0` (also `latest`) on Docker Hub for `linux/amd64`. `compose.portainer.yaml` uses these tags by default.
 - Physical acceptance through this service (owner-confirmed legible, correctly facing, unclipped text and solid power after each roll), one portrait and one landscape label per format, each after reading the loaded roll:
   - S0722550 / 19 x 51 mm: CUPS jobs 1 (portrait box label) and 2 (landscape location label; a landscape box label does not fit with the default sizes and is blocked).
   - S0722520 / 25 x 54 mm: jobs 3 and 4. S0722430 / 54 x 101 mm: jobs 5 and 6. S0722540 / 57 x 32 mm: jobs 7 and 8.

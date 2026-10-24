@@ -70,7 +70,21 @@ Formats: S0722540 (57 × 32 mm), S0722550 (19 × 51 mm), S0722520 (25 × 54 mm),
 
 ## Portainer
 
-Build and push both images (`.` and `./cups`) to a registry, then deploy [compose.portainer.yaml](compose.portainer.yaml) with immutable image tags, long random keys and `PRINTER_HOST`. Publish port 3230 on the LAN only. Keep the volumes on local storage. No image has been published yet.
+Published images (Docker Hub, `linux/amd64`): `mrsnille/label-service` and `mrsnille/label-service-cups`, tagged with the version and `latest`. Deploy [compose.portainer.yaml](compose.portainer.yaml) as a stack; it uses the current release tags by default. Set these stack variables:
+
+- `LABEL_ADMIN_KEY` and `LABEL_CLIENT_KEYS`: long random keys, one client key per calling system.
+- `PRINTER_HOST`: the printer's LAN address.
+- Optional: `LABEL_BIND`, `LABEL_PORT`, `CUPS_QUEUE`, `LABEL_ALLOWED_ORIGINS`, or `LABEL_API_IMAGE` / `LABEL_CUPS_IMAGE` to pin a digest.
+
+Publish port 3230 on the LAN only. Keep the volumes on local storage. To update, raise the image tags (or re-pull `latest`) and recreate the stack.
+
+Release: bump `VERSION`, add a history entry, run the checks, then build and push both images:
+
+```powershell
+$v = Get-Content VERSION
+docker buildx build --platform linux/amd64 -t mrsnille/label-service:$v -t mrsnille/label-service:latest --push .
+docker buildx build --platform linux/amd64 -t mrsnille/label-service-cups:$v -t mrsnille/label-service-cups:latest --push ./cups
+```
 
 ## Checks and data
 
