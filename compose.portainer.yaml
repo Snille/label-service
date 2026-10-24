@@ -1,0 +1,36 @@
+# Portainer stack. Build and publish both images first, then set the image variables to immutable tags or digests.
+name: label-service
+services:
+  cups:
+    image: ${LABEL_CUPS_IMAGE:?Set the published CUPS image}
+    init: true
+    environment:
+      CUPS_QUEUE: ${CUPS_QUEUE:-DYMO_5XL}
+      PRINTER_HOST: ${PRINTER_HOST:?Set the printer address}
+      PRINTER_PORT: ${PRINTER_PORT:-9100}
+    volumes:
+      - cups-spool:/var/spool/cups
+      - cups-cache:/var/cache/cups
+    restart: unless-stopped
+  api:
+    image: ${LABEL_API_IMAGE:?Set the published API image}
+    depends_on: [cups]
+    ports:
+      # Publish on the LAN only; never forward this port from the internet.
+      - "${LABEL_BIND:-0.0.0.0}:${LABEL_PORT:-3230}:3230"
+    environment:
+      LABEL_ADMIN_KEY: ${LABEL_ADMIN_KEY:?Set an admin key}
+      LABEL_CLIENT_KEYS: ${LABEL_CLIENT_KEYS:?Set one key per client system}
+      LABEL_ALLOWED_ORIGINS: ${LABEL_ALLOWED_ORIGINS:-}
+      CUPS_URL: http://cups:631
+      CUPS_QUEUE: ${CUPS_QUEUE:-DYMO_5XL}
+      PRINTER_HOST: ${PRINTER_HOST}
+      PRINTER_PORT: ${PRINTER_PORT:-9100}
+    volumes:
+      - api-data:/data
+    restart: unless-stopped
+    stop_grace_period: 30s
+volumes:
+  cups-spool:
+  cups-cache:
+  api-data:

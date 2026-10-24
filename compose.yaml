@@ -1,0 +1,37 @@
+name: label-service
+services:
+  cups:
+    image: label-service-cups:local
+    build: ./cups
+    init: true
+    environment:
+      CUPS_QUEUE: ${CUPS_QUEUE:-DYMO_5XL}
+      PRINTER_HOST: ${PRINTER_HOST:-}
+      PRINTER_PORT: ${PRINTER_PORT:-9100}
+    volumes:
+      # Keeps CUPS job numbers and job history across container updates.
+      - cups-spool:/var/spool/cups
+      - cups-cache:/var/cache/cups
+    restart: unless-stopped
+  api:
+    image: label-service:local
+    build: .
+    depends_on: [cups]
+    ports:
+      - "127.0.0.1:${LABEL_PORT:-3230}:3230"
+    environment:
+      LABEL_ADMIN_KEY: ${LABEL_ADMIN_KEY:?Set an admin key}
+      LABEL_CLIENT_KEYS: ${LABEL_CLIENT_KEYS:-}
+      LABEL_ALLOWED_ORIGINS: ${LABEL_ALLOWED_ORIGINS:-}
+      CUPS_URL: http://cups:631
+      CUPS_QUEUE: ${CUPS_QUEUE:-DYMO_5XL}
+      PRINTER_HOST: ${PRINTER_HOST:-}
+      PRINTER_PORT: ${PRINTER_PORT:-9100}
+    volumes:
+      - api-data:/data
+    restart: unless-stopped
+    stop_grace_period: 30s
+volumes:
+  cups-spool:
+  cups-cache:
+  api-data:
