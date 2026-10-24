@@ -1,5 +1,11 @@
 # History
 
+## 0.3.0 - 2026-10-24
+
+- Added an admin web page at `/`: queue status, manual roll reading with `Use the detected format`, selected format, per-format text direction and sizes, a test label preview (SVG) and one-copy test print, and the recent job journal. It asks for the admin key and keeps it in the tab's memory only; strict Content Security Policy, no inline script.
+- The API now also accepts browser calls from the service's own origin, so the page works without `LABEL_ALLOWED_ORIGINS`.
+- Printer settings now live only here. Storage System Base 0.15 prints through this service with a client key and no longer reads the roll or holds printer settings.
+
 ## 0.2.0 - 2026-10-24
 
 - First published release: images `mrsnille/label-service:0.2.0` and `mrsnille/label-service-cups:0.2.0` (also `latest`) on Docker Hub for `linux/amd64`. `compose.portainer.yaml` uses these tags by default.

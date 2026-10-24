@@ -55,6 +55,18 @@ test('HTTP API authenticates every client, limits admin operations and never pri
   assert.equal((await call('/api/v1/unknown', 'storage-key-for-tests')).status, 404);
 });
 
+test('the admin page is served with a strict policy and may call the API from its own origin only', async t => {
+  const { base, call } = await start(t);
+  const page = await fetch(base + '/');
+  assert.equal(page.status, 200); assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
+  assert.match(await page.text(), /Admin key/);
+  for (const path of ['/admin.js', '/style.css']) assert.equal((await fetch(base + path)).status, 200);
+  assert.equal((await fetch(base + '/../src/server.js')).status, 404);
+  const own = base.replace('127.0.0.1', '127.0.0.1');
+  assert.equal((await call('/api/v1/formats', 'admin-key-for-tests-only', { headers: { Origin: own } })).status, 200);
+  assert.equal((await call('/api/v1/formats', 'admin-key-for-tests-only', { headers: { Origin: 'http://127.0.0.1:1' } })).status, 403);
+});
+
 test('without any configured key the API refuses every request', async t => {
   const store = new Store(':memory:'), app = createApp({ store, env: {} }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(async () => { await new Promise(resolve => app.close(resolve)); store.close(); });

@@ -8,6 +8,7 @@ import { InputError, clientName } from './validation.js';
 
 export const version = readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim();
 const digest = value => createHash('sha256').update(value).digest();
+const pages = { '/index.html': ['index.html', 'text/html; charset=utf-8'], '/admin.js': ['admin.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
 
 // LABEL_CLIENT_KEYS="storagesystem=<key>,homeassistant=<key>": one key per calling system, so each can be identified and revoked.
 export function parseClients(env) {
@@ -54,9 +55,18 @@ export function createApp({ store, env = process.env, service } = {}) {
     try {
       const url = new URL(req.url, 'http://localhost'), path = url.pathname, method = req.method;
       if (path === '/healthz' && method === 'GET') return json({ ok: true, version });
+      const page = pages[path === '/' ? '/index.html' : path];
+      if (page && method === 'GET') {
+        // The admin page holds no data; it asks for the admin key and keeps it in the tab's memory only.
+        res.writeHead(200, { 'content-type': page[1], 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
+          'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" });
+        return res.end(readFileSync(new URL(`../web/${page[0]}`, import.meta.url)));
+      }
       if (!path.startsWith('/api/v1/')) throw new InputError('Not found.', 404);
-      // Server-to-server API: browsers may call it only from origins configured explicitly.
-      if (req.headers.origin && !origins.includes(req.headers.origin)) throw new InputError('Origin is not allowed.', 403);
+      // Browsers may call the API from this service's own admin page or from origins configured explicitly.
+      if (req.headers.origin && !origins.includes(req.headers.origin) && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) {
+        throw new InputError('Origin is not allowed.', 403);
+      }
       const client = identify(req);
       if (!client) throw new InputError(clients.length ? 'A valid API key is required.' : 'No API keys are configured. Set LABEL_ADMIN_KEY or LABEL_CLIENT_KEYS.', 401);
       const admin = () => { if (!client.admin) throw new InputError('This operation requires the admin key.', 403); };

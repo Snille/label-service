@@ -2,6 +2,7 @@ FROM node:24.14.0-bookworm-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e7
 WORKDIR /app
 COPY package.json VERSION ./
 COPY src ./src
+COPY web ./web
 COPY test ./test
 RUN node --test --test-timeout=20000
 
@@ -9,6 +10,7 @@ FROM node:24.14.0-bookworm-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e7
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3230 LABEL_DB=/data/label-service.sqlite
 WORKDIR /app
 COPY --from=test --chown=node:node /app/src ./src
+COPY --from=test --chown=node:node /app/web ./web
 COPY --from=test --chown=node:node /app/package.json /app/VERSION ./
 RUN mkdir /data && chown node:node /data
 USER node

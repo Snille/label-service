@@ -41,6 +41,10 @@ The API listens on `127.0.0.1:3230`. The development keys above are for local us
 
 The environment sets the first CUPS and roll-reader settings. After an admin saves settings through the API, the saved settings apply.
 
+## Admin page
+
+Open the service in a browser (for example `http://<server>:3230/`) and enter the admin key. The page shows the CUPS queue, reads the loaded roll (`Use the detected format` selects it), sets the selected format and each format's text direction and sizes, previews and prints one test label, and lists recent jobs. The key stays in the tab's memory only. This is the only place for printer settings; client systems only preview and print.
+
 ## API
 
 Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are JSON (max 64 KB).

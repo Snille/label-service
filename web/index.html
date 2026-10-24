@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Label service</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="admin.js"></script>
+</head>
+<body>
+  <header><h1>Label service</h1><span id="version" class="hint"></span></header>
+  <main>
+    <form id="login" class="panel">
+      <label>Admin key<input id="key" type="password" autocomplete="off" required></label>
+      <button>Open</button>
+      <p class="hint">The key stays in this tab's memory only.</p>
+    </form>
+
+    <div id="app" hidden>
+      <section class="panel">
+        <h2>Printer</h2>
+        <dl id="status"></dl>
+        <div class="actions"><button id="refresh" class="quiet">Check queue</button><button id="read-roll" class="quiet">Read loaded roll</button></div>
+        <p id="roll" class="hint"></p>
+        <button id="use-roll" class="quiet" hidden>Use the detected format</button>
+        <p class="hint">Reading the roll briefly reserves the printer and releases it. Read it after every roll change, while nothing is printing. No label is fed.</p>
+      </section>
+
+      <form id="settings" class="panel">
+        <h2>Label format and text</h2>
+        <label>Selected format (the loaded roll)<select id="media"></select></label>
+        <fieldset>
+          <legend>Text for <span id="style-name"></span></legend>
+          <p class="hint">Each format keeps its own text direction and sizes. Changing the format below shows its saved values.</p>
+          <label>Edit format<select id="style-media"></select></label>
+          <label>Text direction<select id="orientation"><option value="landscape">Landscape: along the long side</option><option value="portrait">Portrait: across the long side</option></select></label>
+          <div class="grid">
+            <label>Title<input id="titleSize" type="number" min="6" max="16" required></label>
+            <label>Description<input id="descriptionSize" type="number" min="6" max="16" required></label>
+            <label>Location<input id="locationSize" type="number" min="6" max="16" required></label>
+            <label>Location label (max)<input id="locationLabelSize" type="number" min="6" max="16" required></label>
+          </div>
+        </fieldset>
+        <button>Save settings</button>
+      </form>
+
+      <section class="panel">
+        <h2>Test label</h2>
+        <div class="grid">
+          <label>Label type<select id="kind"><option value="box">Box label</option><option value="location">Location label</option></select></label>
+        </div>
+        <div class="actions"><button id="preview" class="quiet">Prepare preview</button><button id="print" disabled>Print one label</button></div>
+        <figure id="paper"></figure>
+        <p class="hint">A completed CUPS job confirms delivery to the driver. Check the physical label for text and orientation.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Recent print jobs</h2>
+        <table><thead><tr><th>Time</th><th>Client</th><th>Type</th><th>Format</th><th>State</th><th>CUPS</th></tr></thead><tbody id="jobs"></tbody></table>
+      </section>
+    </div>
+    <p id="message" role="status" aria-live="polite"></p>
+  </main>
+</body>
+</html>
