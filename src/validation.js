@@ -52,7 +52,7 @@ export function validatePrintJob(record) {
     || !/^[a-f0-9]{64}$/.test(record.settingsRevision) || typeof record.createdAt !== 'string' || !Number.isFinite(Date.parse(record.createdAt))
     || !['submitting', 'submitted', 'unknown', 'rejected'].includes(record.state)
     || (record.jobId !== undefined && (!Number.isInteger(record.jobId) || record.jobId < 1))
-    || !clientName.test(record.client) || !['box', 'location'].includes(record.kind)
+    || !clientName.test(record.client) || !['box', 'location', 'lines'].includes(record.kind)
     || (record.reference !== undefined && (typeof record.reference !== 'string' || record.reference.length > 200))) throw new InputError('Invalid print job record.');
   validatePrinting({ enabled: true, serverUrl: record.serverUrl, queue: record.queue, mediaKey: record.mediaKey, styles: defaultLabelStyles() });
   return record;

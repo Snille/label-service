@@ -63,6 +63,26 @@ test('print requests are single-use, durably idempotent and owned by the client 
   assert.deepEqual(await restarted.submit({ token: p.token, requestId }, 'storagesystem'), job);
 });
 
+test('a client may choose the text direction per label without changing the saved format setting', t => {
+  const { service } = setup(t), saved = service.formats().style.orientation;
+  assert.equal(saved, 'landscape');
+  const natural = preview(service, 'storagesystem', { kind: 'location', fields: { location: 'IVAR-A-H2-P1-A' } });
+  const turned = preview(service, 'storagesystem', { kind: 'location', fields: { location: 'IVAR-A-H2-P1-A' }, orientation: 'portrait' });
+  assert.equal(natural.layout.rotated, false); assert.equal(turned.layout.rotated, true); assert.equal(turned.layout.orientation, 'portrait');
+  assert.equal(preview(service, 'storagesystem', { test: true, orientation: 'landscape' }).layout.rotated, false);
+  assert.equal(service.formats().style.orientation, saved);
+  assert.throws(() => preview(service, 'storagesystem', { test: true, orientation: 'sideways' }), /Unsupported/);
+  const lines = preview(service, 'storagesystem', { kind: 'lines', test: true });
+  assert.equal(lines.kind, 'lines'); assert.equal(lines.printable, true); assert.equal(service.templates().templates.length, 3);
+});
+
+test('free-line labels are journalled with their kind', async t => {
+  const { store, service } = setup(t);
+  const p = preview(service, 'homeassistant', { kind: 'lines', fields: { lines: [{ text: 'Batteri bytt', bold: true }, { text: '2026-10-24' }] }, reference: 'ha:battery' });
+  const job = await service.submit({ token: p.token, requestId: randomUUID() }, 'homeassistant');
+  assert.equal(job.kind, 'lines'); assert.equal(job.client, 'homeassistant'); assert.equal(store.audit().ok, true);
+});
+
 test('ambiguous submission failures remain unknown and retries cannot print a second label', async t => {
   const { state, service } = setup(t); state.fail = true;
   const p = preview(service), input = { token: p.token, requestId: randomUUID() };

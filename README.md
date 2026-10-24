@@ -54,13 +54,20 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `GET /healthz` | anyone | Liveness and version. |
 | `GET /api/v1/formats` | client | Selected format (the loaded roll), its text style, all formats and label kinds. |
 | `GET /api/v1/status` | client | CUPS queue state from IPP attributes. Never contacts the printer. |
-| `POST /api/v1/previews` | client | `{kind?: 'box'\|'location', fields \| test: true, mediaKey?, reference?}` → `{token, expiresAt, layout, svg, printable}`. Nothing prints. |
+| `GET /api/v1/templates` | client | The label templates (kinds) and their fields. |
+| `POST /api/v1/previews` | client | `{kind?: 'box'\|'location'\|'lines', fields \| test: true, mediaKey?, orientation?: 'portrait'\|'landscape', reference?}` → `{token, expiresAt, layout, svg, printable}`. Nothing prints. |
 | `POST /api/v1/jobs` | client | `{token, requestId}` (UUIDs) → the journal record. Prints one copy. |
 | `GET /api/v1/jobs`, `GET /api/v1/jobs/<requestId>` | client (own) / admin (all) | Journal records, with live CUPS job state for one job. |
 | `GET`, `PUT /api/v1/settings` | admin | `{revision, config}` with CUPS origin, queue, selected format, per-format `styles` and `rollReader`. |
 | `POST /api/v1/roll` | admin | `{revision}`. Reads the loaded roll once; needs an idle, empty queue. |
 
-Label kinds: `box` takes `title`, `description` and `location`; `location` takes only `location` and prints it large. Text must be Latin-1 (Swedish letters work).
+Label templates (kinds):
+
+- `box`: `title`, `description` and `location`.
+- `location`: only `location`, printed large.
+- `lines`: free text for any system, `{lines: [{text, bold?, size?}]}` with 1-12 lines, sizes 6-16 points (default 10). All lines shrink together until they fit; an empty `text` is a spacer.
+
+Text must be Latin-1 (Swedish letters work). `orientation` sets the text direction for this one label; without it, the selected format's saved direction applies. A later label designer will add saved templates with their own fields to the same `kind` model.
 
 Rules that protect the printer and the labels:
 

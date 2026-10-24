@@ -44,6 +44,22 @@ test('the 102 x 210 mm shipping format uses a custom page with integer DSC bound
   for (const orientation of ['portrait', 'landscape']) assert.deepEqual(labelLayout(testLabel, { ...media.style, orientation }, media.key).warnings, []);
 });
 
+test('free lines keep their order, shrink together to fit and validate each line', () => {
+  const lines = [{ text: 'Kabel HDMI 2 m', bold: true, size: 14 }, { text: '' }, { text: 'Rack 3, port 12' }];
+  const layout = labelLayout({ lines }, labelMediaPresets[0].style, 'w162h90', 'lines');
+  assert.deepEqual(layout.warnings, []); assert.deepEqual(layout.lines.map(l => l.text), ['Kabel HDMI 2 m', 'Rack 3, port 12']);
+  assert.ok(layout.lines[0].bold && layout.lines[0].size > layout.lines[1].size);
+  assert.ok(layout.lines[0].y < layout.lines[1].y);
+  // Many large lines on a small label are shrunk below their requested size, never below 6 points.
+  const crowded = labelLayout({ lines: Array.from({ length: 6 }, (_, i) => ({ text: `Rad ${i + 1}`, size: 16 })) }, labelMediaPresets[0].style, 'w162h90', 'lines');
+  assert.deepEqual(crowded.warnings, []); assert.ok(crowded.lines.every(l => l.size < 16 && l.size >= 6));
+  assert.ok(labelLayout({ lines: Array.from({ length: 12 }, () => ({ text: 'lång rad med många ord '.repeat(8).slice(0, 200) })) }, labelMediaPresets[1].style, 'w54h144', 'lines').warnings.includes('lines'));
+  for (const bad of [[], Array(13).fill({ text: 'x' }), [{ text: 'x', size: 20 }], [{ text: 'x', color: 'red' }], [{ text: 'a\nb' }], [{ text: '漢字' }], [{ text: 5 }]]) {
+    assert.throws(() => labelLayout({ lines: bad }, null, 'w162h90', 'lines'));
+  }
+  assert.throws(() => labelLayout({ title: 'x' }, null, 'w162h90', 'lines'), /Unsupported label field/);
+});
+
 test('SVG preview escapes text and keeps the readable canvas size', () => {
   const svg = layoutSvg(labelLayout({ title: '<b>&"x"</b>', description: '', location: 'A' }));
   assert.match(svg, /viewBox="0 0 162 90"/); assert.match(svg, /&lt;b&gt;&amp;&quot;x&quot;&lt;\/b&gt;/); assert.doesNotMatch(svg, /<b>/);

@@ -72,6 +72,7 @@ export function createApp({ store, env = process.env, service } = {}) {
       const admin = () => { if (!client.admin) throw new InputError('This operation requires the admin key.', 403); };
       const jobMatch = path.match(/^\/api\/v1\/jobs\/([a-f0-9-]{36})$/);
       if (path === '/api/v1/formats' && method === 'GET') return json(service.formats());
+      if (path === '/api/v1/templates' && method === 'GET') return json(service.templates());
       if (path === '/api/v1/status' && method === 'GET') return json(await service.status());
       if (path === '/api/v1/previews' && method === 'POST') return json(service.preview(await body(req), client.name), 201);
       if (path === '/api/v1/jobs' && method === 'POST') return json(await service.submit(await body(req), client.name), 201);

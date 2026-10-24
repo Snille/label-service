@@ -3,9 +3,18 @@ import { labelMediaPresets, naturalOrientation } from './label-media.js';
 export { labelMediaPresets, defaultLabelStyles } from './label-media.js';
 
 export const labelMedia = labelMediaPresets[0];
-export const labelKinds = ['box', 'location'];
+export const labelKinds = ['box', 'location', 'lines'];
 export const testLabel = { title: 'Storage System TEST', description: 'ÅÄÖ åäö - en testetikett', location: 'TEST - 57 x 32 mm' };
-const kindFields = { box: ['title', 'description', 'location'], location: ['location'] };
+export const testLines = [{ text: 'Label service TEST', bold: true, size: 12 }, { text: 'ÅÄÖ åäö - fri text' }, { text: 'rad 3', size: 8 }];
+const kindFields = { box: ['title', 'description', 'location'], location: ['location'], lines: ['lines'] };
+// Built-in templates. A later designer adds saved templates with their own fields.
+export const labelTemplates = [
+  { kind: 'box', name: 'Box label', fields: { title: 'text, max 240', description: 'text, max 2000, may be empty', location: 'text, max 240' } },
+  { kind: 'location', name: 'Location label', fields: { location: 'text, max 240; printed large' } },
+  { kind: 'lines', name: 'Free lines', fields: { lines: 'array of 1-12 { text (max 240, may be empty), bold?: boolean, size?: 6-16 points, default 10 }; shrunk together until they fit' } }
+];
+const latin1 = value => !/[^\x09\x0a\x0d\x20-\x7e\xa0-\xff]/u.test(value);
+const unsupported = () => new InputError('Label text supports Latin-1, including Swedish letters. Shorten text or replace unsupported characters.');
 const width = (text, size) => [...text.normalize('NFD').replace(/[̀-ͯ]/g, '')].reduce((sum, c) =>
   sum + (/^[ilI.,'!:;| ]$/.test(c) ? .26 : /^[MWmw@]$/.test(c) ? .85 : /^[A-Z0-9]$/.test(c) ? .62 : .51) * size, 0);
 
@@ -40,17 +49,48 @@ export function labelLayout(input, style, mediaKey = labelMedia.key, kind = 'box
   const availableWidth = canvas.widthPt - 17, heightScale = canvas.heightPt / 90, fields = kindFields[kind];
   object(input);
   for (const name of Object.keys(input)) if (!fields.includes(name)) throw new InputError('Unsupported label field.');
-  for (const name of fields) {
-    text(input[name], name, { empty: name === 'description' });
-    if (input[name].length > (name === 'description' ? 2000 : 240) || /[^\x09\x0a\x0d\x20-\x7e\xa0-\xff]/u.test(input[name])) {
-      throw new InputError('Label text supports Latin-1, including Swedish letters. Shorten text or replace unsupported characters.');
+  if (kind === 'lines') {
+    if (!Array.isArray(input.lines) || input.lines.length < 1 || input.lines.length > 12) throw new InputError('lines must be an array of 1-12 lines.');
+    for (const line of input.lines) {
+      object(line, 'line');
+      if (Object.keys(line).some(k => !['text', 'bold', 'size'].includes(k)) || typeof line.text !== 'string' || line.text.length > 240
+        || (line.bold !== undefined && typeof line.bold !== 'boolean') || (line.size !== undefined && (!Number.isInteger(line.size) || line.size < 6 || line.size > 16))) {
+        throw new InputError('Each line is { text, bold?, size? } with text up to 240 characters and size 6-16 points.');
+      }
+      if (/[\r\n]/.test(line.text) || !latin1(line.text)) throw unsupported();
     }
+  } else for (const name of fields) {
+    text(input[name], name, { empty: name === 'description' });
+    if (input[name].length > (name === 'description' ? 2000 : 240) || !latin1(input[name])) throw unsupported();
   }
   const lines = [], warnings = [];
   const place = (rows, size, bold, top) => {
     for (const [index, row] of rows.entries()) lines.push({ text: row, x: canvas.widthPt / 2, y: top + size + index * size * 1.2,
       size, bold, width: Math.min(availableWidth, width(row, size)) });
   };
+  if (kind === 'lines') {
+    // Shrink every line by the same factor (never below 6 points) until the whole block fits, then centre it vertically.
+    const top = 6 * heightScale, height = 78 * heightScale;
+    const fit = factor => {
+      const blocks = input.lines.map(line => {
+        const size = Math.max(6, Math.floor((line.size || 10) * factor));
+        return { size, bold: Boolean(line.bold), rows: line.text.trim() ? wrap(line.text, size, availableWidth, true) : [''] };
+      });
+      const total = blocks.reduce((sum, b) => sum + b.rows.length * b.size * 1.2, 0);
+      return { blocks, total, fits: total <= height && blocks.every(b => b.rows.every(row => width(row, b.size) <= availableWidth)) };
+    };
+    let result = fit(1);
+    for (let factor = 0.95; !result.fits && factor > 0.3; factor -= 0.05) result = fit(factor);
+    if (!result.fits) warnings.push('lines');
+    let y = top + Math.max(0, (height - result.total) / 2);
+    for (const block of result.blocks) {
+      const capacity = Math.max(0, Math.floor((top + height - y) / (block.size * 1.2)));
+      place(block.rows.slice(0, capacity).filter(row => row), block.size, block.bold, y);
+      // Blank spacer rows take their height without drawing anything.
+      y += block.rows.length * block.size * 1.2;
+    }
+    return { ...page, kind, lines, warnings };
+  }
   if (kind === 'location') {
     // One large centered block: use the largest size up to the format's setting that fits the whole label.
     const top = 6 * heightScale, height = 78 * heightScale;

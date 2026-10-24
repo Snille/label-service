@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { InputError, object, validatePrinting } from './validation.js';
 import { CupsPrinter } from './ipp.js';
-import { defaultLabelStyles, labelKinds, labelMedia, labelMediaPresets, labelLayout, labelPostScript, testLabel } from './labels.js';
+import { defaultLabelStyles, labelKinds, labelMedia, labelMediaPresets, labelLayout, labelPostScript, labelTemplates, testLabel, testLines } from './labels.js';
 import { readDymoRoll } from './dymo-roll.js';
 import { layoutSvg } from './svg.js';
 
@@ -31,6 +31,7 @@ export class PrintService {
     const config = this.config();
     return { mediaKey: config.mediaKey, media: labelMediaPresets.find(p => p.key === config.mediaKey), style: config.styles[config.mediaKey], mediaPresets: labelMediaPresets, kinds: labelKinds };
   }
+  templates() { return { templates: labelTemplates }; }
   assertRevision(revision) { if (revision !== this.revision()) throw new InputError('Print settings changed. Create a new preview before printing.', 409); }
   save(input) {
     object(input);
@@ -61,8 +62,10 @@ export class PrintService {
   }
   preview(input, client) {
     object(input);
-    if (Object.keys(input).some(k => !['kind', 'test', 'fields', 'mediaKey', 'reference'].includes(k)) || (input.test !== undefined && typeof input.test !== 'boolean')
-      || (input.kind !== undefined && !labelKinds.includes(input.kind))) throw new InputError('Unsupported label preview request.');
+    if (Object.keys(input).some(k => !['kind', 'test', 'fields', 'mediaKey', 'orientation', 'reference'].includes(k)) || (input.test !== undefined && typeof input.test !== 'boolean')
+      || (input.kind !== undefined && !labelKinds.includes(input.kind)) || (input.orientation !== undefined && !['portrait', 'landscape'].includes(input.orientation))) {
+      throw new InputError('Unsupported label preview request.');
+    }
     if (input.reference !== undefined && (typeof input.reference !== 'string' || !input.reference.trim() || input.reference.length > 200)) throw new InputError('reference must be a short string.');
     const kind = input.kind || 'box', config = this.config(), revision = revisionOf(config), media = labelMediaPresets.find(p => p.key === config.mediaKey);
     // A client may state the format it expects; the loaded roll decides, so a mismatch is refused rather than printed on the wrong labels.
@@ -71,9 +74,11 @@ export class PrintService {
     if (input.test === true) {
       if (input.fields) throw new InputError('Test labels use fixed sample text.');
       const location = `TEST - ${media.widthMm} x ${media.heightMm} mm`;
-      fields = kind === 'box' ? { ...testLabel, location } : { location };
+      fields = kind === 'box' ? { ...testLabel, location } : kind === 'lines' ? { lines: testLines } : { location };
     } else fields = object(input.fields, 'fields');
-    const layout = labelLayout(fields, config.styles[config.mediaKey], config.mediaKey, kind), token = randomUUID();
+    // A client may choose the text direction for this label; otherwise the format's saved direction applies.
+    const style = { ...config.styles[config.mediaKey], ...(input.orientation ? { orientation: input.orientation } : {}) };
+    const layout = labelLayout(fields, style, config.mediaKey, kind), token = randomUUID();
     const now = Date.now(); for (const [id, p] of this.previews) if (p.expires <= now) this.previews.delete(id);
     if (this.previews.size >= 100) throw new InputError('Too many label previews. Wait for an older preview to expire.', 429);
     const expires = now + 10 * 60 * 1000;

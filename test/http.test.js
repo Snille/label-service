@@ -36,6 +36,8 @@ test('HTTP API authenticates every client, limits admin operations and never pri
   assert.equal((await call('/api/v1/formats', 'storage-key-for-tests', { headers: { Origin: 'http://designer.local' } })).status, 200);
   const formats = await (await call('/api/v1/formats', 'storage-key-for-tests', { headers: { authorization: 'Bearer storage-key-for-tests' } })).json();
   assert.equal(formats.mediaKey, 'w162h90'); assert.equal(formats.mediaPresets.length, 5);
+  const { templates } = await (await call('/api/v1/templates', 'storage-key-for-tests')).json();
+  assert.deepEqual(templates.map(t => t.kind), ['box', 'location', 'lines']);
   assert.equal((await call('/api/v1/settings', 'storage-key-for-tests')).status, 403);
   assert.equal((await call('/api/v1/roll', 'storage-key-for-tests', { method: 'POST', body: '{}' })).status, 403);
   const settings = await (await call('/api/v1/settings', 'admin-key-for-tests-only')).json(); assert.equal(settings.config.queue, 'DYMO_5XL');

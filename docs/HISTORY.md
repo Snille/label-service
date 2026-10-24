@@ -1,5 +1,13 @@
 # History
 
+## 0.4.0 - 2026-10-24
+
+- Clients may choose the text direction per label (`orientation` in the preview request); the format's saved direction is the default and is not changed.
+- New free-lines template (`kind: 'lines'`) so any system can print its own text: 1-12 lines with optional bold and size, shrunk together to fit and centred; empty lines are spacers.
+- `GET /api/v1/templates` lists the templates and their fields. The journal accepts the `lines` kind.
+- The admin page can test free lines and either text direction.
+- 29 tests pass.
+
 ## 0.3.0 - 2026-10-24
 
 - Added an admin web page at `/`: queue status, manual roll reading with `Use the detected format`, selected format, per-format text direction and sizes, a test label preview (SVG) and one-copy test print, and the recent job journal. It asks for the admin key and keeps it in the tab's memory only; strict Content Security Policy, no inline script.

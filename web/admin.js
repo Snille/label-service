@@ -76,9 +76,11 @@ $('settings').addEventListener('submit', event => { event.preventDefault(); run(
   fill(); invalidate(); await status(); message('Settings saved.');
 }); });
 $('kind').addEventListener('change', invalidate);
+$('test-orientation').addEventListener('change', invalidate);
 $('preview').addEventListener('click', () => run(async () => {
   invalidate();
-  preview = await api('/previews', { kind: $('kind').value, test: true, mediaKey: settings.config.mediaKey });
+  const orientation = $('test-orientation').value;
+  preview = await api('/previews', { kind: $('kind').value, test: true, mediaKey: settings.config.mediaKey, ...(orientation ? { orientation } : {}) });
   requestId = crypto.randomUUID();
   const img = document.createElement('img'), caption = document.createElement('figcaption');
   img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(preview.svg)}`; img.alt = 'Label preview';
