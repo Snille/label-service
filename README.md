@@ -2,7 +2,7 @@
 
 A small LAN print service for a DYMO LabelWriter 5XL. It is the **only** program that talks to the printer. Other systems send label content to its HTTP API; the service lays the label out, shows a preview, and submits exactly one copy through CUPS.
 
-Status: development preview (`VERSION`), running in Docker Desktop. All five formats have been printed through this service in portrait and landscape and accepted by the owner (see [history](docs/HISTORY.md)). Not yet deployed to Portainer, and no client system uses it yet.
+Status: `VERSION` 0.4.0, live as a Portainer stack on the LAN (`http://<server>:3230/`). All five formats have been printed through this service in portrait and landscape and accepted by the owner, and Storage System Base prints through it with its own client key (see [history](docs/HISTORY.md)). Next steps: [handoff](docs/HANDOFF-2026-10-24.md).
 
 ## Why one owner
 
