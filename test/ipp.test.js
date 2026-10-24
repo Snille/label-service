@@ -25,7 +25,7 @@ test('IPP transport sends one PostScript document with explicit media and reject
   assert.deepEqual(ippValues(requests[1].attributes, 'copies', 2), [1]);
   assert.deepEqual(ippValues(requests[1].attributes, 'media', 2), ['w162h90']);
   assert.deepEqual(ippValues(requests[1].attributes, 'ipp-attribute-fidelity', 1), [true]);
-  substituted = true; await assert.rejects(printer.validate('w162h90', 'Test'), /substituted/);
+  substituted = true; await assert.rejects(printer.validate('w162h90', 'Test'), error => /substituted/.test(error.message) && error.ippStatus === 1);
 });
 
 test('IPP codec bounds malformed data and scalar continuations', () => {

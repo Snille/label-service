@@ -1,5 +1,19 @@
 # History
 
+## 0.2.0-dev - 2026-10-24
+
+- Physical acceptance through this service (owner-confirmed legible, correctly facing, unclipped text and solid power after each roll), one portrait and one landscape label per format, each after reading the loaded roll:
+  - S0722550 / 19 x 51 mm: CUPS jobs 1 (portrait box label) and 2 (landscape location label; a landscape box label does not fit with the default sizes and is blocked).
+  - S0722520 / 25 x 54 mm: jobs 3 and 4. S0722430 / 54 x 101 mm: jobs 5 and 6. S0722540 / 57 x 32 mm: jobs 7 and 8.
+  - New shipping format 2166659 / 102 x 210 mm: jobs 9 and 10.
+- Added the shipping label format 2166659 (102 x 210 mm, size measured by the owner; the article number on the label backing matches the roll chip). `lw5xl.ppd` has no named size for it, so CUPS uses the PPD's custom page size through the PWG name `custom_102x210mm_102x210mm`. Offline raster conversion gives exactly 289 x 595 pt in both directions. Larger default text sizes (title 16, description 12, location 14).
+- Roll reading accepts seven-digit articles without the `S` prefix (shipping labels).
+- Settings saved before a format existed gain that format's defaults instead of becoming invalid.
+- Fixed the CUPS queue: it must be shared (`printer-is-shared=true`, as on the old server), or CUPS refuses Print-Job from the api container with `client-error-not-authorized`. Browsing stays off. The first submission hit this and printed nothing; its journal entry remains `unknown` from the older code.
+- A verified IPP error status (0x0400 and above) is now recorded as `rejected`, because CUPS created no job. Lost responses and success-with-warning statuses stay `unknown`.
+- PostScript `%%BoundingBox` is always integer; fractional pages add `%%HiResBoundingBox`. Output for the four integer formats is unchanged.
+- 25 tests pass. Once, after a roll change, the printer did not answer on the network until a label was fed by hand; the roll reader timed out without sending any command.
+
 ## 0.1.0-dev - 2026-10-24
 
 - New LAN label print service: the single owner of the DYMO LabelWriter 5XL. Other systems (first Storage System Base, later a label designer) send label content to its API instead of talking to CUPS or the printer.

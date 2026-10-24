@@ -17,8 +17,9 @@ done
 
 if [ -n "${PRINTER_HOST:-}" ]; then
   uri="socket://${PRINTER_HOST}:${PRINTER_PORT}/?waiteof=false&contimeout=5"
-  # lpadmin on an existing queue updates it in place and keeps its jobs.
-  lpadmin -p "$CUPS_QUEUE" -E -v "$uri" -P "$PPD" -o printer-is-shared=false
+  # lpadmin on an existing queue updates it in place and keeps its jobs. The queue must be shared:
+  # CUPS refuses Print-Job from the api container on an unshared queue. Browsing is off, so it is not advertised.
+  lpadmin -p "$CUPS_QUEUE" -E -v "$uri" -P "$PPD" -o printer-is-shared=true
   cupsenable "$CUPS_QUEUE"
   cupsaccept "$CUPS_QUEUE"
   echo "Queue $CUPS_QUEUE -> $uri ($PPD)"

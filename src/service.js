@@ -114,7 +114,8 @@ export class PrintService {
     } catch (error) {
       if (claimed) {
         // A lost response may follow a successful physical submission. Never retry it.
-        return this.store.updatePrint(input.requestId, { state: sent ? 'unknown' : 'rejected' });
+        // Only a verified IPP error status proves that CUPS created no job.
+        return this.store.updatePrint(input.requestId, { state: sent && !(error.ippStatus >= 0x400) ? 'unknown' : 'rejected' });
       }
       throw error;
     } finally { this.busy = false; }

@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, existsSync, openSync, closeSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { InputError, validatePrinting, validatePrintJob } from './validation.js';
+import { defaultLabelStyles } from './label-media.js';
 
 const schema = `
 CREATE TABLE settings (id TEXT PRIMARY KEY NOT NULL, record TEXT NOT NULL CHECK(json_valid(record))) STRICT;
@@ -36,7 +37,12 @@ export class Store {
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
-  printing() { const row = this.db.prepare("SELECT record FROM settings WHERE id='printing'").get(); return row ? JSON.parse(row.record) : null; }
+  printing() {
+    const row = this.db.prepare("SELECT record FROM settings WHERE id='printing'").get(); if (!row) return null;
+    // Settings saved before a format was added get that format's defaults; formats no longer offered are dropped.
+    const saved = JSON.parse(row.record), defaults = defaultLabelStyles();
+    return { ...saved, styles: Object.fromEntries(Object.entries(defaults).map(([key, style]) => [key, saved.styles?.[key] || style])) };
+  }
   writePrinting(config) {
     validatePrinting(config);
     this.db.prepare("INSERT INTO settings VALUES ('printing', ?) ON CONFLICT(id) DO UPDATE SET record = excluded.record").run(JSON.stringify(config));

@@ -29,6 +29,22 @@ test('environment defaults configure CUPS until settings are saved', t => {
   assert.throws(() => service.save({ revision: view.revision, config: view.config }), { status: 409 });
 });
 
+test('settings saved before a format existed gain its defaults and stay valid', t => {
+  const { store, service } = setup(t), view = service.view();
+  const styles = structuredClone(view.config.styles); styles.w162h90.descriptionSize = 7;
+  service.save({ revision: view.revision, config: { ...view.config, styles } });
+  // Simulate a database written when only four formats existed.
+  const old = JSON.parse(store.db.prepare("SELECT record FROM settings WHERE id='printing'").get().record);
+  delete old.styles['custom_102x210mm_102x210mm']; old.styles.retired = { ...old.styles.w162h90 };
+  store.db.prepare("UPDATE settings SET record=? WHERE id='printing'").run(JSON.stringify(old));
+  const config = service.config();
+  assert.equal(config.styles.w162h90.descriptionSize, 7); assert.equal(config.styles.retired, undefined);
+  assert.equal(config.styles['custom_102x210mm_102x210mm'].titleSize, 16);
+  assert.equal(store.audit().ok, true);
+  service.save({ revision: service.revision(), config: { ...config, mediaKey: 'custom_102x210mm_102x210mm' } });
+  assert.equal(preview(service).layout.sku, '2166659');
+});
+
 test('print requests are single-use, durably idempotent and owned by the client that previewed them', async t => {
   const { store, state, service } = setup(t), p = preview(service, 'storagesystem', { kind: 'location', fields: { location: 'IVAR-A-H2-P1-A' }, reference: 'box:42' });
   assert.equal(p.printable, true); assert.match(p.svg, /^<svg/);
@@ -52,6 +68,15 @@ test('ambiguous submission failures remain unknown and retries cannot print a se
   const p = preview(service), input = { token: p.token, requestId: randomUUID() };
   assert.equal((await service.submit(input, 'storagesystem')).state, 'unknown');
   assert.equal((await service.submit(input, 'storagesystem')).state, 'unknown'); assert.equal(state.printCalls, 1);
+});
+
+test('a verified IPP error status is recorded as rejected, while warnings and lost responses stay unknown', async t => {
+  const { state, service } = setup(t), printer = service.printerFactory();
+  for (const [ippStatus, expected] of [[0x0401, 'rejected'], [0x0500, 'rejected'], [0x0001, 'unknown'], [undefined, 'unknown']]) {
+    printer.print = async () => { state.printCalls++; throw Object.assign(new Error('failed'), { ippStatus }); };
+    const p = preview(service);
+    assert.equal((await service.submit({ token: p.token, requestId: randomUUID() }, 'storagesystem')).state, expected, String(ippStatus));
+  }
 });
 
 test('wrong format, stale settings, stopped queues, expired and overflowing previews do not submit', async t => {

@@ -2,7 +2,7 @@
 
 A small LAN print service for a DYMO LabelWriter 5XL. It is the **only** program that talks to the printer. Other systems send label content to its HTTP API; the service lays the label out, shows a preview, and submits exactly one copy through CUPS.
 
-Status: development preview (`VERSION`). Previews, settings and the CUPS route work in Docker Desktop. **No physical label has been printed through this service yet.** The printing code itself was physically accepted in Storage System Base 0.14.0 (four formats, both text directions).
+Status: development preview (`VERSION`), running in Docker Desktop. All five formats have been printed through this service in portrait and landscape and accepted by the owner (see [history](docs/HISTORY.md)). Not yet deployed to Portainer, and no client system uses it yet.
 
 ## Why one owner
 
@@ -66,7 +66,7 @@ Rules that protect the printer and the labels:
 - Reusing a `requestId` returns the existing record and never prints again. A lost response after submission is recorded as `unknown` and is not retried. Check the job and the label before preparing another.
 - CUPS accepts any media name in `Validate-Job` (it even accepts sizes that do not exist), so the service's own format list is the real guard.
 
-Formats: S0722540 (57 × 32 mm), S0722550 (19 × 51 mm), S0722520 (25 × 54 mm), S0722430 (54 × 101 mm). Each format keeps its own text sizes and text direction (landscape along the long side, portrait across it).
+Formats: S0722540 (57 × 32 mm), S0722550 (19 × 51 mm), S0722520 (25 × 54 mm), S0722430 (54 × 101 mm) and shipping labels 2166659 (102 × 210 mm, a CUPS custom page size because `lw5xl.ppd` has no named size for it). On 19 × 51 mm, a landscape box label does not fit with the default sizes; use a location label or smaller sizes. Each format keeps its own text sizes and text direction (landscape along the long side, portrait across it).
 
 ## Portainer
 

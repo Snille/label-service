@@ -57,7 +57,8 @@ export function decodeRoll(status, sku) {
   if (!Buffer.isBuffer(sku) || sku.length !== 64 || sku.readUInt16LE(0) !== 0xcab6 || sku[2] !== 0 || sku[3] !== 60) throw failure('Unrecognized DYMO consumable response.');
   const text = bytes => bytes.toString('ascii').replace(/\0+$/, '');
   const article = text(sku.subarray(8, 20));
-  if (!/^S\d{7}$/.test(article) || text(status.subarray(11, 23)) !== article) throw failure('DYMO roll changed or consumable identifiers disagree. Read the roll again.');
+  // Articles are S plus seven digits (S0722540) or seven digits alone (2166659, shipping labels).
+  if (!/^S?\d{7}$/.test(article) || text(status.subarray(11, 23)) !== article) throw failure('DYMO roll changed or consumable identifiers disagree. Read the roll again.');
   const head = ['ok', 'overheated', 'unknown'][status[8]] || 'unknown';
   const bay = ['unknown', 'open', 'no-media', 'misaligned', 'unknown-media', 'empty', 'critically-low', 'low', 'ok', 'jammed', 'unrecognized-media'][status[10] & 15] || 'unknown';
   if (head !== 'ok' || !['empty', 'critically-low', 'low', 'ok'].includes(bay)) throw failure('DYMO head or loaded roll is not in a supported state. Check the printer.');

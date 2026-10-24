@@ -35,6 +35,15 @@ test('location labels fit compact codes on every format and reject box fields', 
   assert.throws(() => labelLayout({ title: 'x', location: 'A' }, null, 'w162h90', 'location'), /Unsupported label field/);
 });
 
+test('the 102 x 210 mm shipping format uses a custom page with integer DSC bounds', () => {
+  const media = labelMediaPresets.find(p => p.sku === '2166659');
+  const ps = labelPostScript(labelLayout(testLabel, media.style, media.key)).toString('ascii');
+  assert.match(ps, /^%%BoundingBox: 0 0 290 596$/m); assert.match(ps, /^%%HiResBoundingBox: 0 0 289.13 595.28$/m);
+  assert.match(ps, /PageSize \[289.13 595.28\]/);
+  assert.doesNotMatch(labelPostScript(labelLayout(testLabel)).toString('ascii'), /HiResBoundingBox/);
+  for (const orientation of ['portrait', 'landscape']) assert.deepEqual(labelLayout(testLabel, { ...media.style, orientation }, media.key).warnings, []);
+});
+
 test('SVG preview escapes text and keeps the readable canvas size', () => {
   const svg = layoutSvg(labelLayout({ title: '<b>&"x"</b>', description: '', location: 'A' }));
   assert.match(svg, /viewBox="0 0 162 90"/); assert.match(svg, /&lt;b&gt;&amp;&quot;x&quot;&lt;\/b&gt;/); assert.doesNotMatch(svg, /<b>/);

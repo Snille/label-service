@@ -71,6 +71,12 @@ test('roll decoder validates identity, placeholders and errors, and preserves a 
   b.writeUInt32LE(4096, 23); assert.throws(() => decodeRoll(b, media), /device error/);
   assert.throws(() => decodeRoll(status(5), media), /idle/);
   const unknown = status(), unknownSku = sku(); unknown.write('S1234567', 11); unknownSku.write('S1234567', 8); assert.equal(decodeRoll(unknown, unknownSku).media, null);
+  // Shipping labels report a seven-digit article without the S prefix.
+  const shipping = status(), shippingSku = sku(); shipping.fill(0, 11, 23); shippingSku.fill(0, 8, 20); shipping.write('2166659', 11); shippingSku.write('2166659', 8);
+  assert.equal(decodeRoll(shipping, shippingSku).media.key, 'custom_102x210mm_102x210mm');
+  for (const bad of ['216665', 'X2166659', '21666590']) {
+    const s = status(), k = sku(); s.fill(0, 11, 23); k.fill(0, 8, 20); s.write(bad, 11); k.write(bad, 8); assert.throws(() => decodeRoll(s, k), /disagree/);
+  }
 });
 test('all explicit label formats generate their own dimensions and retain overflow guards', () => {
   for (const media of labelMediaPresets) {

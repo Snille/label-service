@@ -84,7 +84,10 @@ function literal(value) {
 
 export function labelPostScript(layout) {
   const pageWidth = layout.pageWidthPt ?? layout.widthPt, pageHeight = layout.pageHeightPt ?? layout.heightPt;
-  const out = ['%!PS-Adobe-3.0', '%%Pages: 1', `%%BoundingBox: 0 0 ${pageWidth} ${pageHeight}`, `<< /PageSize [${pageWidth} ${pageHeight}] /NumCopies 1 >> setpagedevice`];
+  // DSC bounding boxes are integers; a fractional page (102 x 210 mm) also gets a high-resolution box.
+  const out = ['%!PS-Adobe-3.0', '%%Pages: 1', `%%BoundingBox: 0 0 ${Math.ceil(pageWidth)} ${Math.ceil(pageHeight)}`,
+    ...(Number.isInteger(pageWidth) && Number.isInteger(pageHeight) ? [] : [`%%HiResBoundingBox: 0 0 ${pageWidth} ${pageHeight}`]),
+    `<< /PageSize [${pageWidth} ${pageHeight}] /NumCopies 1 >> setpagedevice`];
   for (const [name, font] of [['Regular', 'Helvetica'], ['Bold', 'Helvetica-Bold']]) out.push(`/${name} /${font} findfont dup length dict begin {1 index /FID ne {def} {pop pop} ifelse} forall /Encoding ISOLatin1Encoding def currentdict end definefont pop`);
   // Rotated canvas: canvas (u, v) lands on page (pageWidth - v, u), a quarter turn counterclockwise.
   if (layout.rotated) out.push(`${pageWidth} 0 translate 90 rotate`);

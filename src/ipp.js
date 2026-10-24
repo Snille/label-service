@@ -78,7 +78,11 @@ export class CupsPrinter {
       const parts = []; let size = 0;
       for await (const chunk of response.body) { size += chunk.length; if (size > 1024 * 1024) throw new Error(); parts.push(chunk); }
       const result = decodeIpp(Buffer.concat(parts), id);
-      if (result.status !== 0) throw new InputError('CUPS rejected the request or substituted attributes. Check the queue, format and media.', 502);
+      if (result.status !== 0) {
+        const error = new InputError('CUPS rejected the request or substituted attributes. Check the queue, format and media.', 502);
+        // A verified client/server error status (0x0400 and above) means CUPS created no job.
+        error.ippStatus = result.status; throw error;
+      }
       return result;
     } catch (error) {
       if (error instanceof InputError) throw error;
