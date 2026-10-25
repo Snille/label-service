@@ -8,7 +8,8 @@ import { InputError, clientName } from './validation.js';
 
 export const version = readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim();
 const digest = value => createHash('sha256').update(value).digest();
-const pages = { '/index.html': ['index.html', 'text/html; charset=utf-8'], '/admin.js': ['admin.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
+const pages = { '/index.html': ['index.html', 'text/html; charset=utf-8'], '/admin.js': ['admin.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'],
+  '/favicon.ico': ['favicon.ico', 'image/x-icon'], '/favicon-32.png': ['favicon-32.png', 'image/png'], '/apple-touch-icon.png': ['apple-touch-icon.png', 'image/png'] };
 
 // LABEL_CLIENT_KEYS="storagesystem=<key>,homeassistant=<key>": one key per calling system, so each can be identified and revoked.
 export function parseClients(env) {

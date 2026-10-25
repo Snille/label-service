@@ -1,5 +1,9 @@
 # History
 
+## 0.4.1 - 2026-10-25
+
+- Favicon: a Da Vinci style sketch of a printing machine with a label tag, shared theme with the other services (made with the ComfyUI icon workflow in `Coding/Icons`). Served as `/favicon.ico`, `/favicon-32.png` and `/apple-touch-icon.png`; the HTTP test checks all three.
+
 ## 0.4.0 - 2026-10-24
 
 - Clients may choose the text direction per label (`orientation` in the preview request); the format's saved direction is the default and is not changed.

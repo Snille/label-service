@@ -63,6 +63,10 @@ test('the admin page is served with a strict policy and may call the API from it
   assert.equal(page.status, 200); assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
   assert.match(await page.text(), /Admin key/);
   for (const path of ['/admin.js', '/style.css']) assert.equal((await fetch(base + path)).status, 200);
+  for (const [path, type] of [['/favicon.ico', 'image/x-icon'], ['/favicon-32.png', 'image/png'], ['/apple-touch-icon.png', 'image/png']]) {
+    const icon = await fetch(base + path); assert.equal(icon.status, 200); assert.equal(icon.headers.get('content-type'), type);
+    assert.ok((await icon.arrayBuffer()).byteLength > 100);
+  }
   assert.equal((await fetch(base + '/../src/server.js')).status, 404);
   const own = base.replace('127.0.0.1', '127.0.0.1');
   assert.equal((await call('/api/v1/formats', 'admin-key-for-tests-only', { headers: { Origin: own } })).status, 200);
