@@ -1,5 +1,5 @@
 # CUPS with the official DYMO LabelWriter 5xx driver, matching the old server's working setup
-# (Ubuntu 24.04, CUPS 2.4, driver built from source, lw5xl.ppd).
+# (Ubuntu 24.04, CUPS 2.4, driver built from source, lw5xl.ppd), plus the CUPS DYMO driver for the LabelWriter 450 and 4XL.
 ARG UBUNTU=ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
 
 FROM ${UBUNTU} AS driver
@@ -20,9 +20,12 @@ RUN find src -name LabelManagerLanguageMonitorV2.cpp -exec sed -i '1i #include <
   && find /out -name raster2dymolw_v2 | grep -q . && find /out -name lw5xl.ppd | grep -q .
 
 FROM ${UBUNTU}
-RUN apt-get update && apt-get install -y --no-install-recommends cups cups-filters ghostscript libcupsimage2t64 \
+RUN apt-get update && apt-get install -y --no-install-recommends cups cups-filters ghostscript libcupsimage2t64 printer-driver-dymo \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=driver /out/ /
+# Both drivers must be present: raster2dymolw_v2 (5xx) and raster2dymolw (450/4XL), with their PPDs.
+RUN test -x /usr/lib/cups/filter/raster2dymolw_v2 && test -x /usr/lib/cups/filter/raster2dymolw \
+  && /usr/lib/cups/driver/dymo cat dymo:0/cups/model/lw450.ppd | grep -q 'raster2dymolw"' && find /usr/share/cups/model -name lw5xl.ppd | grep -q .
 # Listen on the stack network only (the port is never published), accept the service name as host,
 # allow printing from that network and keep administration local to the container.
 RUN sed -i -e 's/^Listen localhost:631/Port 631/' -e 's/^WebInterface Yes/WebInterface No/' -e 's/^Browsing .*/Browsing No/' /etc/cups/cupsd.conf \

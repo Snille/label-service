@@ -1,6 +1,6 @@
 import { createConnection } from 'node:net';
 import { InputError } from './validation.js';
-import { labelMediaPresets } from './labels.js';
+import { labelMediaPresets } from './label-media.js';
 
 const failure = message => new InputError(message || 'DYMO roll reading failed. Check the printer before trying again.', 502);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));

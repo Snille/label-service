@@ -98,14 +98,14 @@ export class CupsPrinter {
       reasons: ippValues(result, 'printer-state-reasons', 4), formats: ippValues(result, 'document-format-supported', 4),
       media: ippValues(result, 'media-supported', 4), defaultMedia: one('media-default') };
   }
-  options(media, name) {
+  options(media, name, format) {
     return { operation: [ippAttribute('job-name', ippTags.name, name), ippAttribute('ipp-attribute-fidelity', ippTags.boolean, true),
-      ippAttribute('document-format', ippTags.mime, 'application/postscript')],
+      ippAttribute('document-format', ippTags.mime, format)],
     job: [ippAttribute('copies', ippTags.integer, 1), ippAttribute('media', ippTags.keyword, media)] };
   }
-  async validate(media, name) { const o = this.options(media, name); await this.operation(0x0004, o.operation, o.job); }
-  async print(media, name, document) {
-    const o = this.options(media, name); const result = await this.operation(0x0002, o.operation, o.job, document);
+  async validate(media, name, format = 'application/pdf') { const o = this.options(media, name, format); await this.operation(0x0004, o.operation, o.job); }
+  async print(media, name, document, format = 'application/pdf') {
+    const o = this.options(media, name, format); const result = await this.operation(0x0002, o.operation, o.job, document);
     const id = ippValues(result, 'job-id', 2)[0];
     if (!Number.isInteger(id) || id < 1) throw new InputError('CUPS did not return a valid job identifier. Check the queue before retrying.', 502);
     return id;

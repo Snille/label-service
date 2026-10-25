@@ -2,11 +2,16 @@
   "name": "label-service",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24.14.0" },
+  "engines": {
+    "node": ">=24.14.0"
+  },
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test --test-timeout=20000",
     "check": "node scripts/check.js",
     "audit:data": "node src/cli.js audit"
+  },
+  "dependencies": {
+    "opentype.js": "2.0.0"
   }
 }

@@ -6,8 +6,10 @@ services:
     init: true
     environment:
       CUPS_QUEUE: ${CUPS_QUEUE:-DYMO_5XL}
+      PRINTER_MODEL: ${PRINTER_MODEL:-lw5xl}
       PRINTER_HOST: ${PRINTER_HOST:-}
       PRINTER_PORT: ${PRINTER_PORT:-9100}
+      PRINTER_URI: ${PRINTER_URI:-}
     volumes:
       # Keeps CUPS job numbers and job history across container updates.
       - cups-spool:/var/spool/cups
@@ -22,9 +24,12 @@ services:
     environment:
       LABEL_ADMIN_KEY: ${LABEL_ADMIN_KEY:?Set an admin key}
       LABEL_CLIENT_KEYS: ${LABEL_CLIENT_KEYS:-}
+      LABEL_CLIENT_ROLES: ${LABEL_CLIENT_ROLES:-}
       LABEL_ALLOWED_ORIGINS: ${LABEL_ALLOWED_ORIGINS:-}
       CUPS_URL: http://cups:631
       CUPS_QUEUE: ${CUPS_QUEUE:-DYMO_5XL}
+      PRINTER_MODEL: ${PRINTER_MODEL:-lw5xl}
+      PRINTER_NAME: ${PRINTER_NAME:-}
       PRINTER_HOST: ${PRINTER_HOST:-}
       PRINTER_PORT: ${PRINTER_PORT:-9100}
     volumes:

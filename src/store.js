@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, existsSync, openSync, closeSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { InputError, validatePrinting, validatePrintJob } from './validation.js';
-import { defaultLabelStyles } from './label-media.js';
+import { defaultLabelStyles, printerModel } from './label-media.js';
 
 const schema = `
 CREATE TABLE settings (id TEXT PRIMARY KEY NOT NULL, record TEXT NOT NULL CHECK(json_valid(record))) STRICT;
@@ -12,6 +12,25 @@ CREATE TABLE print_jobs (
 ) STRICT;
 PRAGMA user_version = 1;
 `;
+// Version 2 adds saved label templates: one row per template version, never rewritten except for its status.
+const templatesSchema = `
+CREATE TABLE templates (
+  id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version >= 1),
+  record TEXT NOT NULL CHECK(json_valid(record) AND json_extract(record, '$.id') = id AND json_extract(record, '$.version') = version),
+  PRIMARY KEY (id, version)
+) STRICT;
+PRAGMA user_version = 2;
+`;
+const schemaVersion = 2;
+
+// Settings saved before version 0.5 described one printer at the top level; they become the default printer.
+export function migratePrinting(saved) {
+  if (Array.isArray(saved.printers)) return saved;
+  const id = (saved.queue || 'dymo').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'dymo';
+  return { serverUrl: saved.serverUrl || '', defaultPrinter: id, batchLimit: 50,
+    printers: [{ id, name: 'DYMO LabelWriter 5XL', model: 'lw5xl', enabled: saved.enabled, queue: saved.queue || '', mediaKey: saved.mediaKey, styles: saved.styles,
+      ...(saved.rollReader ? { rollReader: saved.rollReader } : {}) }] };
+}
 
 export class Store {
   constructor(path, { readOnly = false } = {}) {
@@ -21,10 +40,11 @@ export class Store {
     try {
       this.db.exec('PRAGMA trusted_schema = OFF;');
       const version = this.db.prepare('PRAGMA user_version').get().user_version;
-      if (version > 1 || (readOnly && version !== 1)) throw new Error(`Unsupported database schema: ${version}`);
+      if (version > schemaVersion || (readOnly && version < 1)) throw new Error(`Unsupported database schema: ${version}`);
       if (!readOnly) {
         this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
         if (!version) this.transaction(() => this.db.exec(schema));
+        if (version < 2) this.transaction(() => this.db.exec(templatesSchema));
       }
     } catch (error) { this.close(); throw error; }
   }
@@ -40,12 +60,33 @@ export class Store {
   printing() {
     const row = this.db.prepare("SELECT record FROM settings WHERE id='printing'").get(); if (!row) return null;
     // Settings saved before a format was added get that format's defaults; formats no longer offered are dropped.
-    const saved = JSON.parse(row.record), defaults = defaultLabelStyles();
-    return { ...saved, styles: Object.fromEntries(Object.entries(defaults).map(([key, style]) => [key, saved.styles?.[key] || style])) };
+    const saved = migratePrinting(JSON.parse(row.record)), defaults = defaultLabelStyles();
+    return { ...saved, printers: saved.printers.map(printer => ({ ...printer, model: printerModel(printer.model) ? printer.model : 'lw5xl',
+      styles: Object.fromEntries(Object.entries(defaults).map(([key, style]) => [key, printer.styles?.[key] || style])) })) };
   }
   writePrinting(config) {
     validatePrinting(config);
     this.db.prepare("INSERT INTO settings VALUES ('printing', ?) ON CONFLICT(id) DO UPDATE SET record = excluded.record").run(JSON.stringify(config));
+  }
+
+  templateVersions(id) { return this.db.prepare('SELECT record FROM templates WHERE id=? ORDER BY version').all(id).map(row => JSON.parse(row.record)); }
+  templateIds() { return this.db.prepare('SELECT DISTINCT id FROM templates ORDER BY id').all().map(row => row.id); }
+  template(id, version) { const row = this.db.prepare('SELECT record FROM templates WHERE id=? AND version=?').get(id, version); return row ? JSON.parse(row.record) : null; }
+  addTemplateVersion(record) {
+    return this.transaction(() => {
+      const next = (this.db.prepare('SELECT MAX(version) AS v FROM templates WHERE id=?').get(record.id).v || 0) + 1;
+      const saved = { ...record, version: next, definition: { ...record.definition, id: record.id } };
+      this.db.prepare('INSERT INTO templates VALUES (?, ?, ?)').run(saved.id, next, JSON.stringify(saved));
+      return saved;
+    });
+  }
+  updateTemplateVersion(id, version, changes) {
+    return this.transaction(() => {
+      const before = this.template(id, version); if (!before) throw new InputError('Template version not found.', 404);
+      const record = { ...before, ...changes, id, version, definition: before.definition };
+      this.db.prepare('UPDATE templates SET record=? WHERE id=? AND version=?').run(JSON.stringify(record), id, version);
+      return record;
+    });
   }
 
   printJobs() { return this.db.prepare('SELECT record FROM print_jobs ORDER BY id').all().map(row => JSON.parse(row.record)); }
@@ -81,6 +122,14 @@ export class Store {
     let invalidJobs = 0;
     for (const job of this.printJobs()) { try { validatePrintJob(job); } catch { invalidJobs++; } }
     if (invalidJobs) errors.push(`${invalidJobs} invalid print job record(s).`);
+    let invalidTemplates = 0;
+    if (this.db.prepare('PRAGMA user_version').get().user_version >= 2) {
+      for (const row of this.db.prepare('SELECT record FROM templates').all()) {
+        const t = JSON.parse(row.record);
+        if (!['draft', 'published', 'archived'].includes(t.status) || t.definition?.id !== t.id) invalidTemplates++;
+      }
+    }
+    if (invalidTemplates) errors.push(`${invalidTemplates} invalid template record(s).`);
     const states = {};
     for (const job of this.printJobs()) states[job.state] = (states[job.state] || 0) + 1;
     return { ok: errors.length === 0, schemaVersion: this.db.prepare('PRAGMA user_version').get().user_version,

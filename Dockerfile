@@ -1,6 +1,10 @@
 FROM node:24.14.0-bookworm-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8 AS test
+# rsvg-convert turns the label SVG into the PDF sent to CUPS and the PNG previews.
+RUN apt-get update && apt-get install -y --no-install-recommends librsvg2-bin && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY package.json VERSION ./
+COPY package.json package-lock.json VERSION ./
+RUN npm ci --omit=dev --ignore-scripts
+COPY fonts ./fonts
 COPY src ./src
 COPY web ./web
 COPY test ./test
@@ -8,7 +12,10 @@ RUN node --test --test-timeout=20000
 
 FROM node:24.14.0-bookworm-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8 AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3230 LABEL_DB=/data/label-service.sqlite
+RUN apt-get update && apt-get install -y --no-install-recommends librsvg2-bin && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+COPY --from=test --chown=node:node /app/node_modules ./node_modules
+COPY --from=test --chown=node:node /app/fonts ./fonts
 COPY --from=test --chown=node:node /app/src ./src
 COPY --from=test --chown=node:node /app/web ./web
 COPY --from=test --chown=node:node /app/package.json /app/VERSION ./

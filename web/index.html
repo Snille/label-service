@@ -22,6 +22,7 @@
     <div id="app" hidden>
       <section class="panel">
         <h2>Printer</h2>
+        <label id="printer-choice" hidden>Printer<select id="printer"></select></label>
         <dl id="status"></dl>
         <div class="actions"><button id="refresh" class="quiet">Check queue</button><button id="read-roll" class="quiet">Read loaded roll</button></div>
         <p id="roll" class="hint"></p>
@@ -44,6 +45,7 @@
             <label>Location label (max)<input id="locationLabelSize" type="number" min="6" max="16" required></label>
           </div>
         </fieldset>
+        <label>Most labels in one batch (applies to all printers)<input id="batch-limit" type="number" min="1" max="500" required></label>
         <button>Save settings</button>
       </form>
 
@@ -60,7 +62,7 @@
 
       <section class="panel">
         <h2>Recent print jobs</h2>
-        <table><thead><tr><th>Time</th><th>Client</th><th>Type</th><th>Format</th><th>State</th><th>CUPS</th></tr></thead><tbody id="jobs"></tbody></table>
+        <table><thead><tr><th>Time</th><th>Client</th><th>Type</th><th>Printer</th><th>Format</th><th>State</th><th>CUPS</th></tr></thead><tbody id="jobs"></tbody></table>
       </section>
     </div>
     <p id="message" role="status" aria-live="polite"></p>

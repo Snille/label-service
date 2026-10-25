@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { readDymoRoll, decodeRoll } from '../src/dymo-roll.js';
-import { labelMediaPresets, labelLayout, labelPostScript } from '../src/labels.js';
+import { labelMediaPresets, labelLayout } from '../src/labels.js';
+import { pageSvg } from '../src/svg.js';
 
 function status(engine = 0) { const b = Buffer.alloc(32); b[0] = engine; b[10] = 8; b.write('S0722540', 11); b.writeUInt16LE(123, 27); return b; }
 function sku() { const b = Buffer.alloc(64); b.writeUInt16LE(0xcab6); b[3] = 60; b.write('S0722540', 8); return b; }
@@ -82,7 +83,7 @@ test('all explicit label formats generate their own dimensions and retain overfl
   for (const media of labelMediaPresets) {
     const layout = labelLayout({ title: 'M4', description: 'Test', location: 'A1' }, undefined, media.key);
     assert.equal(layout.widthPt, media.widthPt); assert.equal(layout.heightPt, media.heightPt); assert.deepEqual(layout.warnings, []);
-    assert.match(labelPostScript(layout).toString(), new RegExp(`PageSize \\[${media.widthPt} ${media.heightPt}\\]`));
+    assert.ok(pageSvg(layout).includes(`viewBox="0 0 ${media.widthPt} ${media.heightPt}"`));
     assert.ok(layout.lines.every(line => line.y < media.heightPt && line.width <= media.widthPt - 17));
     assert.ok(labelLayout({ title: 'Test', description: 'Long '.repeat(300), location: 'A1' }, undefined, media.key).warnings.length);
   }
