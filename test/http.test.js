@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { Store } from '../src/store.js';
 import { PrintService } from '../src/service.js';
 import { createApp, parseClients } from '../src/server.js';
+import { encodeRgba } from '../src/png.js';
 
 const env = { LABEL_ADMIN_KEY: 'admin-key-for-tests-only', LABEL_CLIENT_KEYS: 'storagesystem=storage-key-for-tests, homeassistant=ha-key-for-tests-only, studio=studio-key-for-tests-only, mcp=mcp-key-for-tests-only',
   LABEL_CLIENT_ROLES: 'studio=designer, mcp=drafter', LABEL_ALLOWED_ORIGINS: 'http://designer.local' };
@@ -101,6 +102,36 @@ test('templates are saved, published and printed through the HTTP API with role 
   const archived = (await (await call('/api/v1/templates', 'studio-key-for-tests-only')).json()).templates.find(t => t.id === 'shelf-tag');
   assert.deepEqual([archived.archived, archived.everPublished], [true, true]);
   assert.equal((await call('/api/v1/templates/shelf-tag/versions', 'studio-key-for-tests-only', { method: 'DELETE' })).status, 404);
+});
+
+test('pictures are uploaded, listed, served, used by templates and deleted only when no template uses them', async t => {
+  const { call } = await start(t);
+  const post = (path, key, body) => call(path, key, { method: 'POST', body: JSON.stringify(body) });
+  const rgba = Buffer.alloc(8 * 4 * 4, 255), png = encodeRgba(8, 4, rgba).toString('base64');
+  assert.equal((await post('/api/v1/assets', 'storage-key-for-tests', { name: 'logo', data: png })).status, 403);
+  assert.equal((await post('/api/v1/assets', 'studio-key-for-tests-only', { name: 'bad', data: Buffer.from('hello').toString('base64') })).status, 415);
+  const uploaded = await post('/api/v1/assets', 'studio-key-for-tests-only', { name: 'Spectrogon logo', data: png });
+  assert.equal(uploaded.status, 201);
+  const asset = await uploaded.json();
+  assert.match(asset.id, /^[a-f0-9]{12}$/); assert.deepEqual([asset.name, asset.type, asset.width, asset.height, asset.createdBy], ['Spectrogon logo', 'png', 8, 4, 'studio']);
+  assert.deepEqual((await (await call('/api/v1/assets', 'mcp-key-for-tests-only')).json()).assets.map(a => a.id), [asset.id]);
+  const content = await call(`/api/v1/assets/${asset.id}/content`, 'studio-key-for-tests-only');
+  assert.equal(content.headers.get('content-type'), 'image/png'); assert.ok(Buffer.from(await content.arrayBuffer()).equals(Buffer.from(png, 'base64')));
+  assert.equal((await call('/api/v1/assets/000000000000/content', 'studio-key-for-tests-only')).status, 404);
+  const tooBig = await post('/api/v1/assets', 'studio-key-for-tests-only', { name: 'big', data: Buffer.alloc(2.1 * 1024 * 1024, 1).toString('base64') });
+  assert.equal(tooBig.status, 413); assert.match((await tooBig.json()).error, /larger than 2 MB/);
+
+  const definition = { id: 'with-logo', name: 'With logo', media: ['*'], fields: {}, objects: [{ id: 'logo', type: 'image', x: 2, y: 2, w: 20, h: 10, asset: asset.id }] };
+  const preview = await (await post('/api/v1/previews', 'studio-key-for-tests-only', { template: definition, fields: {} })).json();
+  assert.equal(preview.printable, true); assert.match(preview.svg, /<image aria-label="logo"/);
+  await post('/api/v1/templates', 'studio-key-for-tests-only', { definition });
+  const used = await call(`/api/v1/assets/${asset.id}`, 'studio-key-for-tests-only', { method: 'DELETE' });
+  assert.equal(used.status, 409); assert.match((await used.json()).error, /used by with-logo/);
+  assert.equal((await call('/api/v1/templates/with-logo', 'studio-key-for-tests-only', { method: 'DELETE' })).status, 200);
+  assert.equal((await call(`/api/v1/assets/${asset.id}`, 'mcp-key-for-tests-only', { method: 'DELETE' })).status, 403);
+  assert.deepEqual(await (await call(`/api/v1/assets/${asset.id}`, 'studio-key-for-tests-only', { method: 'DELETE' })).json(), { id: asset.id, deleted: 1 });
+  const missing = await (await post('/api/v1/previews', 'studio-key-for-tests-only', { template: definition, fields: {} })).json();
+  assert.equal(missing.printable, false); assert.match(missing.warnings[0].message, /does not exist/);
 });
 
 test('the admin page is served with a strict policy and may call the API from its own origin only', async t => {

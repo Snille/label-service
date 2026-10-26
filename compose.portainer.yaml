@@ -2,7 +2,7 @@
 name: label-service
 services:
   cups:
-    image: ${LABEL_CUPS_IMAGE:-mrsnille/label-service-cups:0.7.0}
+    image: ${LABEL_CUPS_IMAGE:-mrsnille/label-service-cups:0.8.0}
     init: true
     environment:
       CUPS_QUEUE: ${CUPS_QUEUE:-DYMO_5XL}
@@ -14,7 +14,7 @@ services:
       - cups-cache:/var/cache/cups
     restart: unless-stopped
   api:
-    image: ${LABEL_API_IMAGE:-mrsnille/label-service:0.7.0}
+    image: ${LABEL_API_IMAGE:-mrsnille/label-service:0.8.0}
     depends_on: [cups]
     ports:
       # Publish on the LAN only; never forward this port from the internet.

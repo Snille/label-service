@@ -1,9 +1,10 @@
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { InputError, object, validatePrinting } from './validation.js';
 import { CupsPrinter } from './ipp.js';
 import { defaultLabelStyles, labelMediaPresets, labelTemplates, layoutTemplate, testLabel, testLines } from './labels.js';
 import { printerModels, printerModel, mediaForModel } from './label-media.js';
-import { builtInTemplates, validateTemplate, templateId } from './template.js';
+import { builtInTemplates, validateTemplate, templateId, assetId } from './template.js';
+import { decodePng, isPng } from './png.js';
 import { fontFamilies } from './fonts.js';
 import { readDymoRoll } from './dymo-roll.js';
 import { layoutSvg, pageSvg } from './svg.js';
@@ -11,6 +12,17 @@ import { rsvgConvert } from './convert.js';
 
 const hash = input => createHash('sha256').update(input).digest('hex');
 export const revisionOf = config => hash(JSON.stringify(config));
+const maxPictureBytes = 2 * 1024 * 1024;
+// The pixel size of a baseline or progressive JPEG, from its first start-of-frame marker.
+function jpegSize(bytes) {
+  for (let at = 2; at + 9 < bytes.length;) {
+    if (bytes[at] !== 0xff) break;
+    const marker = bytes[at + 1], length = bytes.readUInt16BE(at + 2);
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { height: bytes.readUInt16BE(at + 5), width: bytes.readUInt16BE(at + 7) };
+    at += 2 + length;
+  }
+  throw new InputError('The JPEG picture is damaged.');
+}
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const documentFormat = 'application/pdf';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -28,7 +40,7 @@ export class PrintService {
   constructor(store, { defaults = {}, printerFactory = config => new CupsPrinter(config), rollReader = readDymoRoll, converter = rsvgConvert, settleMs = 10000, queueWaitMs = 120000 } = {}) {
     this.store = store; this.defaults = defaults; this.printerFactory = printerFactory; this.rollReader = rollReader; this.converter = converter;
     this.settleMs = settleMs; this.queueWaitMs = queueWaitMs;
-    this.previews = new Map(); this.busy = new Set(); this.lastRollCheck = new Map(); this.lastPrint = new Map();
+    this.previews = new Map(); this.pictures = new Map(); this.busy = new Set(); this.lastRollCheck = new Map(); this.lastPrint = new Map();
   }
   // Waits until the printer has rested since its last job and its CUPS queue is idle and empty, then returns the queue status.
   async settle(cups, printer) {
@@ -143,6 +155,60 @@ export class PrintService {
     return this.store.updateTemplateVersion(id, version, status === 'published'
       ? { status, publishedAt: new Date().toISOString(), publishedBy: client.name } : { status, archivedAt: new Date().toISOString(), archivedBy: client.name });
   }
+  // Pictures: PNG is kept as uploaded; JPEG and SVG are turned into PNG by rsvg-convert (an SVG is drawn 1600 pixels
+  // wide, since it has no pixels of its own). Every picture is decoded once to check it.
+  async uploadAsset(input, client) {
+    client = who(client); object(input);
+    if (!canDraft(client)) throw new InputError('Uploading pictures requires a designer key.', 403);
+    if (Object.keys(input).some(k => !['name', 'data'].includes(k)) || typeof input.data !== 'string') throw new InputError('Send { name, data } with the picture as base64.');
+    const name = String(input.name ?? 'picture').trim().slice(0, 120) || 'picture', bytes = Buffer.from(input.data, 'base64');
+    if (!bytes.length) throw new InputError('The picture is empty.');
+    if (bytes.length > maxPictureBytes) throw new InputError('The picture is larger than 2 MB. Make it smaller first.', 413);
+    let type, png;
+    if (isPng(bytes)) { type = 'png'; png = bytes; }
+    else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+      type = 'jpeg'; const size = jpegSize(bytes);
+      png = await this.converter(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size.width}" height="${size.height}"><image width="${size.width}" height="${size.height}" xlink:href="data:image/jpeg;base64,${bytes.toString('base64')}"/></svg>`, 'png', { dpi: 96, background: false });
+    } else if (/^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE svg[^>]*>\s*)?<svg[\s>]/i.test(bytes.toString('utf8', 0, 4096))) {
+      type = 'svg'; png = await this.converter(bytes.toString('utf8'), 'png', { dpi: 96, width: 1600, background: false });
+    } else throw new InputError('Upload a PNG, JPEG or SVG picture.', 415);
+    const picture = decodePng(png);
+    if (picture.width > 6000 || picture.height > 6000) throw new InputError('The picture is larger than 6000 pixels on a side. Make it smaller first.', 413);
+    const record = { id: randomBytes(6).toString('hex'), name, type, width: picture.width, height: picture.height, bytes: png.length, createdAt: new Date().toISOString(), createdBy: client.name };
+    this.pictures.set(record.id, picture);
+    return this.store.addAsset(record, png);
+  }
+  assets(client) {
+    if (!canDraft(who(client))) throw new InputError('This operation requires a designer key.', 403);
+    return { assets: this.store.assets() };
+  }
+  assetContent(id, client) {
+    if (!canDraft(who(client))) throw new InputError('This operation requires a designer key.', 403);
+    const png = assetId.test(id) ? this.store.assetPng(id) : null;
+    if (!png) throw new InputError('Picture not found.', 404);
+    return png;
+  }
+  // A picture that a saved template uses (any version, any status) stays, so no template loses its picture.
+  deleteAsset(id, client) {
+    client = who(client);
+    if (client.role !== 'designer') throw new InputError('Deleting pictures requires a designer key.', 403);
+    return this.store.transaction(() => {
+      if (!assetId.test(id) || !this.store.asset(id)) throw new InputError('Picture not found.', 404);
+      const users = [...new Set(this.store.allTemplateVersions().filter(t => t.definition.objects.some(o => o.type === 'image' && o.asset === id)).map(t => t.id))];
+      if (users.length) throw new InputError(`The picture is used by ${users.join(', ')}. Remove it from those templates first.`, 409);
+      this.pictures.delete(id);
+      return { id, deleted: this.store.deleteAsset(id) };
+    });
+  }
+  // Decoded pictures for the layout, kept for the most recent ones.
+  picture(id) {
+    if (this.pictures.has(id)) return this.pictures.get(id);
+    const png = assetId.test(id) ? this.store.assetPng(id) : null; if (!png) return null;
+    const picture = decodePng(png); this.pictures.set(id, picture);
+    if (this.pictures.size > 20) this.pictures.delete(this.pictures.keys().next().value);
+    return picture;
+  }
+
   // Only a template that was never published can be deleted: no other system can depend on it. Published ones are archived.
   deleteTemplate(id, client) {
     client = who(client);
@@ -195,7 +261,7 @@ export class PrintService {
     } else fields = object(input.fields, 'fields');
     // A client may choose the text direction for this label; otherwise the template's or the format's saved direction applies.
     const style = printer.styles[printer.mediaKey];
-    const layout = layoutTemplate(definition, fields, { media, style, orientation: input.orientation });
+    const layout = layoutTemplate(definition, fields, { media, style, orientation: input.orientation, picture: id => this.picture(id) });
     // Built-in and published templates print for every client; drafts and unsaved designs only from a designer key.
     const allowed = builtIn || ref.status === 'published' || client.role === 'designer';
     const problems = [...layout.problems, ...(allowed ? [] : [{ object: 'template', message: 'Only published templates can be printed with this key. Publish the template first.' }])];

@@ -130,6 +130,29 @@ test('barcodes, QR and Data Matrix codes print as whole-dot modules, with readab
   }
 });
 
+test('a picture fills its box in whole dots, keeps its proportions and names a missing picture', () => {
+  const media = labelMediaPresets.find(p => p.key === 'w162h90'), dot = 72 / 300;
+  const picture = { width: 200, height: 100, rgba: Buffer.alloc(200 * 100 * 4, 0) }; // black, opaque
+  for (let i = 3; i < picture.rgba.length; i += 4) picture.rgba[i] = 255;
+  const definition = { id: 'logo', name: 'Logo', media: ['*'], fields: {}, objects: [
+    { id: 'logo', type: 'image', x: 2, y: 2, w: 30, h: 30, asset: 'aaaaaaaaaaaa' },
+    { id: 'wide', type: 'image', x: 2, y: 2, w: 30, h: 10, asset: 'aaaaaaaaaaaa', fit: 'stretch', mode: 'dither', threshold: 100 },
+    { id: 'gone', type: 'image', x: 40, y: 2, w: 10, h: 10, asset: 'bbbbbbbbbbbb' }] };
+  validateTemplate(structuredClone(definition));
+  const layout = layoutTemplate(definition, {}, { media, style: media.style, picture: id => id === 'aaaaaaaaaaaa' ? picture : null });
+  const [logo, wide] = layout.items;
+  // 30 mm is 354 dots wide; a 2:1 picture keeps its proportions and sits in the middle of the box.
+  assert.deepEqual([Math.round(logo.w / dot), Math.round(logo.h / dot)], [354, 177]);
+  assert.ok(Math.abs(logo.y + logo.h / 2 - (2 + 15) * 72 / 25.4) < dot);
+  assert.deepEqual([Math.round(wide.w / dot), Math.round(wide.h / dot)], [354, 118]);
+  assert.match(logo.href, /^data:image\/png;base64,/);
+  assert.deepEqual(layout.problems.map(p => p.object), ['gone']); assert.match(layout.problems[0].message, /does not exist/);
+  assert.match(layoutSvg(layout), /<image aria-label="logo" x="[\d.]+" y="[\d.]+" width="[\d.]+" height="[\d.]+" preserveAspectRatio="none" style="image-rendering:pixelated" xlink:href="data:image\/png;base64,/);
+  for (const [change, pattern] of [[o => { o.asset = '../etc'; }, /asset/], [o => { o.fit = 'cover'; }, /fit/], [o => { o.mode = 'grey'; }, /mode/], [o => { o.threshold = 0; }, /threshold/]]) {
+    const wrong = structuredClone(definition); change(wrong.objects[0]); assert.throws(() => validateTemplate(wrong), pattern);
+  }
+});
+
 test('a date object prints the preview time in its format, with text before and after', () => {
   const media = labelMediaPresets.find(p => p.key === 'w162h90');
   const definition = { id: 'dated', name: 'Dated', media: ['*'], fields: {}, objects: [
@@ -165,4 +188,19 @@ test('rsvg-convert turns the page into a PDF of the exact label size and the pre
   }
   const png = await rsvgConvert(layoutSvg(labelLayout(testLabel)), 'png');
   assert.equal(png.readUInt32BE(16), 675); assert.equal(png.readUInt32BE(20), 375);
+});
+
+test('SVG uploads become PNG pictures through rsvg-convert, without reading outside files', { skip: !rsvg && 'rsvg-convert is not installed' }, async () => {
+  const { Store } = await import('../src/store.js'), { PrintService } = await import('../src/service.js');
+  const store = new Store(':memory:'), service = new PrintService(store);
+  try {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="10" height="10"/></svg>';
+    const fromSvg = await service.uploadAsset({ name: 'square', data: Buffer.from(svg).toString('base64') }, { name: 'studio', role: 'designer' });
+    assert.deepEqual([fromSvg.type, fromSvg.width, fromSvg.height], ['svg', 1600, 800]);
+    const png = await rsvgConvert(svg, 'png', { dpi: 96, width: 40 });
+    assert.equal((await service.uploadAsset({ name: 'png', data: png.toString('base64') }, { name: 'studio', role: 'designer' })).type, 'png');
+    const outside = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="10" height="10"><image width="10" height="10" xlink:href="file:///etc/passwd"/></svg>';
+    const safe = await service.uploadAsset({ name: 'outside', data: Buffer.from(outside).toString('base64') }, { name: 'studio', role: 'designer' });
+    assert.equal(safe.type, 'svg'); // the outside file is not drawn: the picture is empty, not an error
+  } finally { store.close(); }
 });

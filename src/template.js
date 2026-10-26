@@ -6,7 +6,8 @@ import { fontFamilies } from './fonts.js';
 
 export const templateId = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const fieldName = /^[a-zA-Z][a-zA-Z0-9_]{0,39}$/;
-const objectTypes = ['text', 'stack', 'line', 'rect', 'ellipse', 'barcode', 'date'];
+const objectTypes = ['text', 'stack', 'line', 'rect', 'ellipse', 'barcode', 'date', 'image'];
+export const assetId = /^[a-f0-9]{12}$/;
 export const symbologies = ['code128', 'ean13', 'qrcode', 'datamatrix'];
 export const twoDimensional = symbology => ['qrcode', 'datamatrix'].includes(symbology);
 // Date formats use yyyy, yy, MM, dd, HH and mm; anything else is printed as it is.
@@ -101,6 +102,13 @@ export function validateTemplate(definition) {
       if (item.humanReadable !== undefined && (twoDimensional(item.symbology) || !['below', 'none'].includes(item.humanReadable))) throw fail(`${name}.humanReadable is below or none (linear barcodes only).`);
       if (item.ecLevel !== undefined && (item.symbology !== 'qrcode' || !['L', 'M', 'Q', 'H'].includes(item.ecLevel))) throw fail(`${name}.ecLevel is L, M, Q or H (QR codes only).`);
       size(item.size, `${name}.size`); font(item, name);
+    } else if (item.type === 'image') {
+      only(item, [...common, 'asset', 'fit', 'mode', 'threshold', 'invert', 'align', 'valign'], name);
+      if (typeof item.asset !== 'string' || !assetId.test(item.asset)) throw fail(`${name}.asset is the id of an uploaded picture.`);
+      if (item.fit !== undefined && !['contain', 'stretch'].includes(item.fit)) throw fail(`${name}.fit is contain or stretch.`);
+      if (item.mode !== undefined && !['threshold', 'dither'].includes(item.mode)) throw fail(`${name}.mode is threshold or dither.`);
+      if (item.threshold !== undefined && !(Number.isInteger(item.threshold) && item.threshold >= 1 && item.threshold <= 254)) throw fail(`${name}.threshold is 1-254.`);
+      if (item.invert !== undefined && typeof item.invert !== 'boolean') throw fail(`${name}.invert is true or false.`);
     } else if (item.type === 'date') {
       only(item, [...common, 'format', 'prefix', 'suffix', 'font', 'size', 'minSize', 'bold', 'italic', 'align', 'valign', 'color'], name);
       if (item.format !== undefined && !dateFormat.test(item.format)) throw fail(`${name}.format is 1-40 characters such as "yyyy-MM-dd HH:mm".`);

@@ -234,12 +234,12 @@ test('the journal survives backup and restore, and the audit detects damage', as
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('a version 1 database gains the templates table and keeps its journal', t => {
+test('a version 1 database gains the templates and pictures tables and keeps its journal', t => {
   const dir = mkdtempSync(join(tmpdir(), 'label-service-'));
   try {
     const path = join(dir, 'old.sqlite'), old = new Store(path);
-    old.db.exec('DROP TABLE templates; PRAGMA user_version = 1;'); old.close();
+    old.db.exec('DROP TABLE templates; DROP TABLE assets; PRAGMA user_version = 1;'); old.close();
     const store = new Store(path);
-    try { assert.equal(store.audit().schemaVersion, 2); assert.deepEqual(store.templateIds(), []); } finally { store.close(); }
+    try { assert.equal(store.audit().schemaVersion, 3); assert.deepEqual(store.templateIds(), []); assert.deepEqual(store.assets(), []); } finally { store.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

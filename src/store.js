@@ -21,7 +21,14 @@ CREATE TABLE templates (
 ) STRICT;
 PRAGMA user_version = 2;
 `;
-const schemaVersion = 2;
+// Version 3 adds pictures for labels: the record (name, size, who uploaded it) and the picture as PNG.
+const assetsSchema = `
+CREATE TABLE assets (
+  id TEXT PRIMARY KEY NOT NULL, record TEXT NOT NULL CHECK(json_valid(record) AND json_extract(record, '$.id') = id), png BLOB NOT NULL
+) STRICT;
+PRAGMA user_version = 3;
+`;
+const schemaVersion = 3;
 
 // Settings saved before version 0.5 described one printer at the top level; they become the default printer.
 export function migratePrinting(saved) {
@@ -45,6 +52,7 @@ export class Store {
         this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
         if (!version) this.transaction(() => this.db.exec(schema));
         if (version < 2) this.transaction(() => this.db.exec(templatesSchema));
+        if (version < 3) this.transaction(() => this.db.exec(assetsSchema));
       }
     } catch (error) { this.close(); throw error; }
   }
@@ -80,6 +88,12 @@ export class Store {
       return saved;
     });
   }
+  assets() { return this.db.prepare("SELECT record FROM assets ORDER BY json_extract(record, '$.createdAt')").all().map(row => JSON.parse(row.record)); }
+  asset(id) { const row = this.db.prepare('SELECT record FROM assets WHERE id=?').get(id); return row ? JSON.parse(row.record) : null; }
+  assetPng(id) { const row = this.db.prepare('SELECT png FROM assets WHERE id=?').get(id); return row ? Buffer.from(row.png) : null; }
+  addAsset(record, png) { this.db.prepare('INSERT INTO assets VALUES (?, ?, ?)').run(record.id, JSON.stringify(record), png); return record; }
+  deleteAsset(id) { return this.db.prepare('DELETE FROM assets WHERE id=?').run(id).changes; }
+  allTemplateVersions() { return this.db.prepare('SELECT record FROM templates').all().map(row => JSON.parse(row.record)); }
   deleteTemplate(id) { return this.db.prepare('DELETE FROM templates WHERE id=?').run(id).changes; }
   updateTemplateVersion(id, version, changes) {
     return this.transaction(() => {

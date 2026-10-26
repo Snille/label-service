@@ -3,9 +3,12 @@
 import { spawn } from 'node:child_process';
 import { InputError } from './validation.js';
 
-export function rsvgConvert(svg, format, { dpi = 300, timeoutMs = 15000, command = process.env.RSVG_CONVERT || 'rsvg-convert' } = {}) {
+// width: a PNG this many pixels wide, keeping the proportions (used to turn an uploaded SVG or JPEG into a PNG);
+// background: false keeps transparency.
+export function rsvgConvert(svg, format, { dpi = 300, width, background = true, timeoutMs = 15000, command = process.env.RSVG_CONVERT || 'rsvg-convert' } = {}) {
   return new Promise((resolve, reject) => {
-    const args = ['--format', format, ...(format === 'png' ? ['--dpi-x', String(dpi), '--dpi-y', String(dpi), '--background-color', 'white'] : [])];
+    const args = ['--format', format, ...(format === 'png' ? ['--dpi-x', String(dpi), '--dpi-y', String(dpi), ...(background ? ['--background-color', 'white'] : [])] : []),
+      ...(width ? ['--width', String(width), '--keep-aspect-ratio'] : [])];
     const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     const out = [], err = []; let size = 0, done = false;
     const finish = (error, value) => { if (done) return; done = true; clearTimeout(timer); error ? reject(error) : resolve(value); };

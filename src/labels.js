@@ -5,6 +5,7 @@ import { labelMediaPresets, naturalOrientation, mmToPt } from './label-media.js'
 import { fontFor, measure, assertGlyphs, defaultFamily } from './fonts.js';
 import { builtInTemplates, builtInDescriptions, validateFields, fill } from './template.js';
 import { encode, dot, symbologyName } from './barcode.js';
+import { toBlackAndWhite, encodeBlackAndWhite } from './png.js';
 export { labelMediaPresets, defaultLabelStyles } from './label-media.js';
 
 export const labelMedia = labelMediaPresets[0];
@@ -166,6 +167,28 @@ function layoutBarcode(item, id, values, style, canvas, layout) {
   return result;
 }
 
+// A picture in whole printer dots, black and white: it keeps its proportions inside the box (contain) or fills it
+// (stretch). The 1-bit PNG is the same in the preview and on paper. Recent conversions are kept for repeated previews.
+const converted = new Map();
+function layoutImage(item, id, canvas, layout, picture) {
+  const area = box(item, canvas), result = { type: 'image', id, x: 0, y: 0, w: 0, h: 0, href: null };
+  const source = picture?.(item.asset);
+  if (!source) { layout.problems.push({ object: id, message: `"${id}" uses a picture that does not exist. Upload it or choose another.` }); return result; }
+  const boxW = Math.floor(area.w / dot), boxH = Math.floor(area.h / dot);
+  if (boxW < 1 || boxH < 1) { layout.problems.push({ object: id, message: `"${id}" is too small for a picture.` }); return result; }
+  let w = boxW, h = boxH;
+  if (item.fit !== 'stretch') { const scale = Math.min(boxW / source.width, boxH / source.height); w = Math.max(1, Math.round(source.width * scale)); h = Math.max(1, Math.round(source.height * scale)); }
+  const options = { mode: item.mode || 'threshold', threshold: item.threshold ?? 128, invert: Boolean(item.invert) };
+  const key = `${item.asset}:${w}x${h}:${options.mode}:${options.threshold}:${options.invert}`;
+  let href = converted.get(key);
+  if (!href) {
+    href = `data:image/png;base64,${encodeBlackAndWhite(w, h, toBlackAndWhite(source, w, h, options)).toString('base64')}`;
+    converted.set(key, href); if (converted.size > 50) converted.delete(converted.keys().next().value);
+  }
+  return { ...result, href, w: round(w * dot), h: round(h * dot),
+    x: snap(area.x + offset(area.w - w * dot, item.align || 'center', 'left', 'right')), y: snap(area.y + offset(area.h - h * dot, item.valign || 'middle', 'top', 'bottom')) };
+}
+
 // The date and time when the label is previewed (the print uses that preview). Tokens: yyyy, yy, MM, dd, HH, mm.
 export function formatDate(date, format = 'yyyy-MM-dd') {
   const two = n => String(n).padStart(2, '0');
@@ -187,7 +210,8 @@ export function labelPage(media, orientation) {
     pageWidthPt: media.widthPt, pageHeightPt: media.heightPt, rotated, orientation: rotated ? orientation : naturalOrientation(media) };
 }
 
-export function layoutTemplate(definition, input, { media, style, orientation, now = new Date() }) {
+// picture(id) returns a decoded uploaded picture ({width, height, rgba}) or null.
+export function layoutTemplate(definition, input, { media, style, orientation, now = new Date(), picture }) {
   const values = validateFields(definition, input);
   const layout = { ...labelPage(media, orientation || definition.orientation || style.orientation), kind: definition.id, lines: [], items: [], problems: [] };
   for (const [index, item] of definition.objects.entries()) {
@@ -197,7 +221,7 @@ export function layoutTemplate(definition, input, { media, style, orientation, n
     layout.items.push(item.type === 'text' ? layoutText(item, id, values, style, layout, layout)
       : item.type === 'stack' ? layoutStack(item, id, values, style, layout, layout)
       : item.type === 'barcode' ? layoutBarcode(item, id, values, style, layout, layout)
-      : item.type === 'date' ? date() : layoutShape(item, id, layout));
+      : item.type === 'date' ? date() : item.type === 'image' ? layoutImage(item, id, layout, layout, picture) : layoutShape(item, id, layout));
   }
   layout.warnings = [...new Set(layout.problems.map(p => p.object))];
   return layout;

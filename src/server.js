@@ -36,11 +36,11 @@ export function parseClients(env) {
   return clients;
 }
 
-async function body(req) {
+async function body(req, limit = 256 * 1024) {
   const chunks = []; let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 256 * 1024) throw new InputError('Request body is too large.', 413);
+    if (size > limit) throw new InputError('Request body is too large.', 413);
     chunks.push(chunk);
   }
   if (!size) return {};
@@ -92,6 +92,16 @@ export function createApp({ store, env = process.env, service } = {}) {
       if (templateMatch && method === 'GET' && path.endsWith('/versions')) return json(service.templateVersions(templateMatch[1], client));
       if (templateMatch && method === 'DELETE' && !path.includes('/versions')) return json(service.deleteTemplate(templateMatch[1], client));
       if (templateMatch?.[3] && method === 'POST') return json(service.setTemplateStatus(templateMatch[1], Number(templateMatch[2]), templateMatch[3] === 'publish' ? 'published' : 'archived', client));
+      // Pictures: a 2 MB picture is about 2.7 MB as base64 in JSON.
+      const assetMatch = path.match(/^\/api\/v1\/assets\/([a-f0-9]{12})(\/content)?$/);
+      if (path === '/api/v1/assets' && method === 'GET') return json(service.assets(client));
+      if (path === '/api/v1/assets' && method === 'POST') return json(await service.uploadAsset(await body(req, 3 * 1024 * 1024), client), 201);
+      if (assetMatch?.[2] && method === 'GET') {
+        const png = service.assetContent(assetMatch[1], client);
+        res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' });
+        return res.end(png);
+      }
+      if (assetMatch && !assetMatch[2] && method === 'DELETE') return json(service.deleteAsset(assetMatch[1], client));
       if (path === '/api/v1/status' && method === 'GET') return json(await service.status(printer));
       if (path === '/api/v1/previews' && method === 'POST') return json(await service.preview(await body(req), client), 201);
       if (path === '/api/v1/jobs' && method === 'POST') return json(await service.submit(await body(req), client), 201);

@@ -1,5 +1,13 @@
 # History
 
+## 0.8.0 - 2026-10-26
+
+- Pictures: designers and drafters upload PNG, JPEG or SVG (at most 2 MB, 6000 pixels a side) through `POST /api/v1/assets`. They are stored as PNG in a new `assets` table (database schema 3, added automatically). JPEG and SVG become PNG through `rsvg-convert`, which reads the SVG from standard input and so never loads files or addresses it points to. Designers delete pictures that no saved template uses.
+- Image objects (`type: "image"`): the picture is resampled to whole printer dots and made black and white, by threshold or by Floyd-Steinberg dithering, with `fit`, `invert` and placement. The 1-bit PNG goes into the label drawing, so preview and paper show the same dots. A PNG decoder and 1-bit encoder use Node's zlib only; no new package.
+- Rollback: 0.7 refuses a schema 3 database. To go back, restore a backup taken before the upgrade (`node src/cli.js restore`); pictures uploaded since are lost.
+- Paper test of 0.6 (2026-10-26, owner-checked): a box label on 54 x 101 mm with a QR code, a Code 128 barcode and a date; both codes scan.
+- Verified: tests for PNG decoding (palette, filters), threshold and dithering, picture placement in dots, upload, listing, content, use by templates and deletion; in the image also an SVG upload and an SVG that points to a local file. A PNG and a JPEG logo rendered by threshold and by dithering.
+
 ## 0.7.0 - 2026-10-26
 
 - `DELETE /api/v1/templates/<id>` (designer keys) deletes every version of a template, but only one that was never published, so no other system can depend on it. A published template, also after it is archived, is refused with 409; archive it instead. Print journal records keep the template id they printed.

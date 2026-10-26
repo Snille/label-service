@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.7.0. Version 0.5 is live: it replaced the renderer and added saved templates and several printers, and Label Studio designs and prints its templates. 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.8.0. Version 0.5 is live: it replaced the renderer and added saved templates and several printers, and Label Studio designs and prints its templates. 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -22,6 +22,8 @@ CUPS sends jobs straight to the printer (`socket://PRINTER_HOST:9100`, or `PRINT
 A label is one SVG drawing. The layout engine measures text with the real glyph metrics of the shipped fonts (`fonts/`, open licences) and draws it as outlines, so the preview, the PNG and the printed page have exactly the same shapes. The same drawing becomes the PDF that CUPS prints; a chosen text direction turns it a quarter turn onto the label. Fonts: Liberation Sans (regular, bold, italic, bold italic), Liberation Serif, Liberation Mono and DejaVu Sans Condensed (regular and bold). A character that a font lacks is refused rather than printed as a box.
 
 Barcodes (Code 128, EAN-13) and 2D codes (QR, Data Matrix) are encoded with `bwip-js` and drawn by the layout as rectangles in whole printer dots (300 dpi): linear bars are at least two dots wide, 2D modules at least three, so codes print sharp. A box too small for that is a fit problem, not a blurred code.
+
+Pictures (PNG, JPEG or SVG, at most 2 MB) are uploaded once and stored as PNG in the database; `rsvg-convert` turns JPEG and SVG into PNG (an SVG 1600 pixels wide) and never loads files or addresses an SVG points to. On a label the picture is resampled to whole printer dots and made black and white with a threshold or with Floyd-Steinberg dithering, so the preview shows the exact dots that print.
 
 The npm dependencies are `opentype.js` (MIT), which reads the fonts, and `bwip-js` (MIT), which encodes the codes.
 
@@ -74,7 +76,7 @@ Open the service in a browser and enter the admin key. The page shows the CUPS q
 
 ## API
 
-Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are JSON (max 256 KB). `?printer=<id>` picks a printer where noted; without it the default printer applies.
+Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are JSON (max 256 KB; 3 MB for a picture upload). `?printer=<id>` picks a printer where noted; without it the default printer applies.
 
 | Method and path | Who | Purpose |
 | --- | --- | --- |
@@ -87,6 +89,9 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `POST /api/v1/templates` | designer, drafter | `{definition}` → a new draft version (1, 2, ...). |
 | `POST /api/v1/templates/<id>/versions/<n>/publish`, `.../archive` | designer | Publish or archive one version. |
 | `DELETE /api/v1/templates/<id>` | designer | Delete every version of a template that was never published (409 otherwise: archive it instead). |
+| `GET /api/v1/assets`, `POST /api/v1/assets` | designer, drafter | List pictures; upload `{name, data}` with the picture as base64 → `{id, name, type, width, height, bytes, createdAt, createdBy}`. |
+| `GET /api/v1/assets/<id>/content` | designer, drafter | The stored PNG. |
+| `DELETE /api/v1/assets/<id>` | designer | Delete a picture that no saved template uses (409 names the templates otherwise). |
 | `POST /api/v1/previews` | client | See below → `{token, expiresAt, kind, template?, printer, layout, svg, png?, printable, warnings}`. Nothing prints. |
 | `POST /api/v1/jobs` | client | `{token, requestId}` (UUIDs) → the journal record. Prints one copy. |
 | `GET /api/v1/jobs`, `GET /api/v1/jobs/<requestId>` | client (own) / admin (all) | Journal records, with live CUPS job state for one job. |
@@ -127,6 +132,7 @@ A template places objects on the readable label. Lengths are millimetres or perc
 - Objects: `text` (`font`, `size` in points or a format size such as `"$titleSize"`, `minSize` to shrink to, `bold`, `italic`, `wrap`, `breakHyphens`, `align`, `valign`, `lineHeight`, `color` black or white), `stack` (free lines from a `lines` field), `line`, `rect` and `ellipse` (`stroke` in mm, `fill` none, black or white, `radius`, `dash`).
 - `barcode`: `symbology` (`code128`, `ean13`, `qrcode`, `datamatrix`), `data` with `{{field}}` placeholders, `align` and `valign` inside the box. Linear codes fill the box width with whole-dot bars and take `humanReadable` (`below`, the default, or `none`) with `font` and `size` for the text; EAN-13 takes 12 digits (the check digit is added) or 13 with a correct check digit. QR codes take `ecLevel` (`L`, `M`, `Q`, `H`). Data that the symbology cannot encode is a fit problem with the reason.
 - `date`: the date and time of the preview (a print uses its preview, so at most ten minutes old) in `format` (`yyyy`, `yy`, `MM`, `dd`, `HH`, `mm`; default `yyyy-MM-dd`), with optional `prefix` and `suffix` and the text properties.
+- `image`: `asset` (an uploaded picture id), `fit` (`contain`, the default, keeps the proportions; `stretch` fills the box), `mode` (`threshold`, the default, or `dither` for photos and shades), `threshold` (1-254, default 128: darker is black), `invert`, `align` and `valign`. Transparent parts are white. A missing picture is a fit problem.
 - Built-in and published templates print for every client. Drafts and unsaved designs print only with a designer key, so an LLM tool can propose but not print a template nobody has approved.
 
 ## Rules that protect the printer and the labels
