@@ -34,6 +34,17 @@ services:
       - api-data:/data
     restart: unless-stopped
     stop_grace_period: 30s
+  # Label Studio, the template designer (separate repository). It calls the API over the stack network with its own
+  # client key, so add studio=<key> to LABEL_CLIENT_KEYS and studio=designer to LABEL_CLIENT_ROLES.
+  studio:
+    image: ${LABEL_STUDIO_IMAGE:-mrsnille/label-studio:0.1.0}
+    depends_on: [api]
+    ports:
+      # Publish on the LAN only; never forward this port from the internet.
+      - "${STUDIO_BIND:-0.0.0.0}:${STUDIO_PORT:-3231}:3231"
+    environment:
+      LABEL_SERVICE_URL: http://api:3230
+    restart: unless-stopped
 volumes:
   cups-spool:
   cups-cache:
