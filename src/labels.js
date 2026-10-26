@@ -178,8 +178,9 @@ function layoutImage(item, id, canvas, layout, picture) {
   if (boxW < 1 || boxH < 1) { layout.problems.push({ object: id, message: `"${id}" is too small for a picture.` }); return result; }
   let w = boxW, h = boxH;
   if (item.fit !== 'stretch') { const scale = Math.min(boxW / source.width, boxH / source.height); w = Math.max(1, Math.round(source.width * scale)); h = Math.max(1, Math.round(source.height * scale)); }
-  // Dithered pictures are lightened by default to make up for thermal dot gain.
-  const mode = item.mode || 'threshold', options = { mode, threshold: item.threshold ?? 128, invert: Boolean(item.invert), lighten: item.lighten ?? (mode === 'dither' ? 40 : 0) };
+  // Dithered pictures default to the values that printed best on the 5XL (threshold 140, lighten 15, 2026-10-26).
+  const mode = item.mode || 'threshold', dither = mode === 'dither';
+  const options = { mode, threshold: item.threshold ?? (dither ? 140 : 128), invert: Boolean(item.invert), lighten: item.lighten ?? (dither ? 15 : 0) };
   const key = `${item.asset}:${w}x${h}:${options.mode}:${options.threshold}:${options.invert}:${options.lighten}`;
   let href = converted.get(key);
   if (!href) {

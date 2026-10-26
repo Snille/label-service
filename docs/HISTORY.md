@@ -1,5 +1,10 @@
 # History
 
+## 0.9.1 - 2026-10-26
+
+- Dithered pictures default to threshold 140 and lighten 15, the values that printed best in the owner's paper tests on the 5XL with graphics quality (40 had become too light once the driver printed in graphics quality). Threshold pictures keep 128 and 0. Templates with their own values are unchanged.
+- Paper tests of 0.9.0 (owner): graphics quality removed the grid pattern; the photo printed slightly light at lighten 40.
+
 ## 0.9.0 - 2026-10-26
 
 - A dithered photo printed much darker than its preview, with a grid pattern. Offline checks (no printing) showed the print path is exact: the CUPS raster that `raster2dymolw_v2` receives matches the label's dots one to one (no scaling, no grey). The driver, however, printed in its default `DymoPrintQuality=Text`. Labels with a picture or a barcode now print with `DymoPrintQuality=Graphics` ("Barcodes and Graphics"); a local, printer-less CUPS shows the option reaching the filter.

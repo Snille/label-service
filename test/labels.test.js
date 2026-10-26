@@ -204,3 +204,14 @@ test('SVG uploads become PNG pictures through rsvg-convert, without reading outs
     assert.equal(safe.type, 'svg'); // the outside file is not drawn: the picture is empty, not an error
   } finally { store.close(); }
 });
+
+test('dithered pictures default to threshold 140 and lighten 15, threshold pictures to 128 and 0', () => {
+  const media = labelMediaPresets.find(p => p.key === 'w162h90'), rgba = Buffer.alloc(64 * 64 * 4);
+  for (let i = 0; i < 64 * 64; i++) { const v = (i % 64) * 4; rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = v; rgba[i * 4 + 3] = 255; }
+  const picture = { width: 64, height: 64, rgba };
+  const href = extra => layoutTemplate({ id: 'defaults', name: 'D', media: ['*'], fields: {}, objects: [{ id: 'p', type: 'image', x: 2, y: 2, w: 10, h: 10, asset: 'aaaaaaaaaaaa', ...extra }] },
+    {}, { media, style: media.style, picture: () => picture }).items[0].href;
+  assert.equal(href({ mode: 'dither' }), href({ mode: 'dither', threshold: 140, lighten: 15 }));
+  assert.notEqual(href({ mode: 'dither' }), href({ mode: 'dither', threshold: 128, lighten: 40 }));
+  assert.equal(href({}), href({ mode: 'threshold', threshold: 128, lighten: 0 }));
+});
