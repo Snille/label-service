@@ -99,6 +99,18 @@ test('saved templates validate strictly and lay out text, lines, rectangles and 
   assert.ok(builtInTemplates.every(t => t.objects.length));
 });
 
+test('an empty line between paragraphs stays as an empty row; leading and trailing ones are dropped', () => {
+  const media = labelMediaPresets.find(p => p.key === 'w154h286');
+  const rows = text => layoutTemplate(shipping, { recipient: text }, { media, style: media.style }).items[1].rows;
+  const together = rows('First\nSecond'), apart = rows('\n\nFirst\n\nSecond\n\n');
+  assert.deepEqual(apart.map(r => r.text), ['First', 'Second']);
+  // The empty row moves the second paragraph down by one row height; nothing moves the first.
+  assert.equal(apart[0].baseline, together[0].baseline);
+  assert.ok(Math.abs(apart[1].baseline - together[1].baseline - (together[1].baseline - together[0].baseline)) < 0.01);
+  assert.deepEqual(rows('First\n\n\nSecond').map(r => r.text), ['First', 'Second']);
+  assert.ok(rows('First\n\n\nSecond')[1].baseline > apart[1].baseline);
+});
+
 // Runs where librsvg is installed (the Docker build); skipped on a development machine without it.
 const rsvg = spawnSync(process.env.RSVG_CONVERT || 'rsvg-convert', ['--version']).status === 0;
 test('rsvg-convert turns the page into a PDF of the exact label size and the preview into a PNG', { skip: !rsvg && 'rsvg-convert is not installed' }, async () => {

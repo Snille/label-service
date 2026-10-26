@@ -1,5 +1,11 @@
 # History
 
+## 0.5.1 - 2026-10-26
+
+- Fixed: an empty line between paragraphs in a text field disappeared, so paragraphs ran together in the preview and on paper. Text wrapping now keeps it as an empty row of the same height; empty lines before the first and after the last paragraph are still dropped. Text that used empty lines (for example a multi-line box description) can now need more rows. Found on paper with Label Studio on the 102 x 210 mm shipping roll; a test covers it.
+- The Portainer stack file includes the Label Studio service.
+- Paper tests on the live 5XL through Label Studio 0.1.1 (2026-10-26, checked by the owner): a name label on S0722540 (57 x 32 mm) and a text-heavy label on 2166659 (102 x 210 mm), both sharp, the right way round and unclipped.
+
 ## 0.5.0 - 2026-10-25
 
 Phase 0 of Label Studio: the service can render any designed label, store templates and drive several printers.

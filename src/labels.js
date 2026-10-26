@@ -14,9 +14,12 @@ export const labelTemplates = builtInTemplates.map(t => ({ id: t.id, kind: t.id,
 
 // Greedy word wrap. Location codes such as IVAR-A-H2-P1-A have no spaces, so they may also break after hyphens,
 // but only in a word too wide for a row of its own.
+// An empty line between paragraphs stays an empty row; empty lines before the first or after the last paragraph are dropped.
 function wrap(font, value, size, availableWidth, breakHyphens) {
-  const rows = [];
-  for (const paragraph of value.split('\n')) {
+  const rows = [], paragraphs = value.split('\n');
+  const first = paragraphs.findIndex(p => p.trim()), last = paragraphs.findLastIndex(p => p.trim());
+  for (const paragraph of paragraphs.slice(first, last + 1)) {
+    if (!paragraph.trim()) { rows.push(''); continue; }
     let row = '';
     for (const word of paragraph.trim().split(/\s+/).filter(Boolean)) {
       const pieces = breakHyphens && measure(font, word, size) > availableWidth ? word.match(/[^-]+-*|-+/g) : [word];
