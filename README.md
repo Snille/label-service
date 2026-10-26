@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.6.0. Version 0.5 is live: it replaced the renderer and added saved templates and several printers, and Label Studio designs and prints its templates. 0.6 adds barcodes, 2D codes and dates (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.7.0. Version 0.5 is live: it replaced the renderer and added saved templates and several printers, and Label Studio designs and prints its templates. 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -81,11 +81,12 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `GET /healthz` | anyone | Liveness and version. |
 | `GET /api/v1/formats[?printer=]` | client | The printer's selected format (the loaded roll), its text style, the formats its model supports, the printers, the fonts. |
 | `GET /api/v1/status[?printer=]` | client | CUPS queue state from IPP attributes. Never contacts the printer. |
-| `GET /api/v1/templates` | client | Built-in kinds and saved templates (published ones; designers and drafters also see the latest draft). |
+| `GET /api/v1/templates` | client | Built-in kinds and saved templates (published ones; designers and drafters also see the latest draft, `archived` when every version is archived and `everPublished`). |
 | `GET /api/v1/templates/<id>[?version=n]` | client | One template with its definition. Plain clients see published versions only. |
 | `GET /api/v1/templates/<id>/versions` | designer, drafter | All versions with their status. |
 | `POST /api/v1/templates` | designer, drafter | `{definition}` → a new draft version (1, 2, ...). |
 | `POST /api/v1/templates/<id>/versions/<n>/publish`, `.../archive` | designer | Publish or archive one version. |
+| `DELETE /api/v1/templates/<id>` | designer | Delete every version of a template that was never published (409 otherwise: archive it instead). |
 | `POST /api/v1/previews` | client | See below → `{token, expiresAt, kind, template?, printer, layout, svg, png?, printable, warnings}`. Nothing prints. |
 | `POST /api/v1/jobs` | client | `{token, requestId}` (UUIDs) → the journal record. Prints one copy. |
 | `GET /api/v1/jobs`, `GET /api/v1/jobs/<requestId>` | client (own) / admin (all) | Journal records, with live CUPS job state for one job. |

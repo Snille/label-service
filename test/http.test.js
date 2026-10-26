@@ -85,6 +85,22 @@ test('templates are saved, published and printed through the HTTP API with role 
   const job = await (await post('/api/v1/jobs', 'storage-key-for-tests', { token: preview.token, requestId: randomUUID() })).json();
   assert.deepEqual(job.template, { id: 'shelf-tag', version: 1 }); assert.equal(prints(), 1);
   assert.equal((await call('/api/v1/formats?printer=missing', 'storage-key-for-tests')).status, 404);
+
+  // Deleting: designers only, and never a template that was published, even after it is archived.
+  const del = (id, key) => call(`/api/v1/templates/${id}`, key, { method: 'DELETE' });
+  await post('/api/v1/templates', 'studio-key-for-tests-only', { definition: { ...definition, id: 'scratch-tag' } });
+  await post('/api/v1/templates', 'studio-key-for-tests-only', { definition: { ...definition, id: 'scratch-tag' } });
+  const listed = (await (await call('/api/v1/templates', 'studio-key-for-tests-only')).json()).templates.filter(t => !t.builtIn);
+  assert.deepEqual(listed.map(t => [t.id, t.archived, t.everPublished]), [['scratch-tag', false, false], ['shelf-tag', false, true]]);
+  assert.equal((await del('scratch-tag', 'mcp-key-for-tests-only')).status, 403);
+  assert.equal((await del('scratch-tag', 'storage-key-for-tests')).status, 403);
+  assert.deepEqual(await (await del('scratch-tag', 'studio-key-for-tests-only')).json(), { id: 'scratch-tag', deleted: 2 });
+  assert.equal((await del('scratch-tag', 'studio-key-for-tests-only')).status, 404);
+  assert.equal((await post('/api/v1/templates/shelf-tag/versions/1/archive', 'studio-key-for-tests-only', {})).status, 200);
+  assert.equal((await del('shelf-tag', 'studio-key-for-tests-only')).status, 409);
+  const archived = (await (await call('/api/v1/templates', 'studio-key-for-tests-only')).json()).templates.find(t => t.id === 'shelf-tag');
+  assert.deepEqual([archived.archived, archived.everPublished], [true, true]);
+  assert.equal((await call('/api/v1/templates/shelf-tag/versions', 'studio-key-for-tests-only', { method: 'DELETE' })).status, 404);
 });
 
 test('the admin page is served with a strict policy and may call the API from its own origin only', async t => {

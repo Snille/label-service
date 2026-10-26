@@ -17,6 +17,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 // Callers are identified by name; designers create and publish templates, drafters (LLM tools) only save drafts.
 const who = client => typeof client === 'string' ? { name: client, role: client === 'admin' ? 'designer' : 'client' } : client;
 const canDraft = client => ['designer', 'drafter'].includes(client.role);
+const wasPublished = record => record.status === 'published' || Boolean(record.publishedAt);
 const summary = record => ({ id: record.id, name: record.name, builtIn: false, version: record.version, status: record.status, media: record.definition.media,
   description: record.definition.description, fields: record.definition.fields, createdAt: record.createdAt, createdBy: record.createdBy });
 
@@ -107,7 +108,9 @@ export class PrintService {
     client = who(client);
     const saved = this.store.templateIds().map(id => {
       const versions = this.store.templateVersions(id), published = versions.filter(v => v.status === 'published').at(-1);
-      return canDraft(client) ? { ...summary(published || versions.at(-1)), latest: summary(versions.at(-1)) } : published && summary(published);
+      // Designers and drafters also learn whether every version is archived and whether any was ever published.
+      return canDraft(client) ? { ...summary(published || versions.at(-1)), latest: summary(versions.at(-1)),
+        archived: versions.every(v => v.status === 'archived'), everPublished: versions.some(wasPublished) } : published && summary(published);
     }).filter(Boolean);
     return { templates: [...labelTemplates, ...saved] };
   }
@@ -139,6 +142,17 @@ export class PrintService {
     if (!this.store.template(id, version)) throw new InputError('Template version not found.', 404);
     return this.store.updateTemplateVersion(id, version, status === 'published'
       ? { status, publishedAt: new Date().toISOString(), publishedBy: client.name } : { status, archivedAt: new Date().toISOString(), archivedBy: client.name });
+  }
+  // Only a template that was never published can be deleted: no other system can depend on it. Published ones are archived.
+  deleteTemplate(id, client) {
+    client = who(client);
+    if (client.role !== 'designer') throw new InputError('Deleting templates requires a designer key.', 403);
+    return this.store.transaction(() => {
+      const versions = templateId.test(id) ? this.store.templateVersions(id) : [];
+      if (!versions.length) throw new InputError('Template not found.', 404);
+      if (versions.some(wasPublished)) throw new InputError('This template has been published, so other systems may use it. Archive its versions instead.', 409);
+      return { id, deleted: this.store.deleteTemplate(id) };
+    });
   }
   resolve(input, client) {
     if (input.template !== undefined && input.kind !== undefined) throw new InputError('Send either kind or template.');

@@ -90,6 +90,7 @@ export function createApp({ store, env = process.env, service } = {}) {
         return json(service.template(templateMatch[1], wanted === null ? undefined : Number(wanted), client));
       }
       if (templateMatch && method === 'GET' && path.endsWith('/versions')) return json(service.templateVersions(templateMatch[1], client));
+      if (templateMatch && method === 'DELETE' && !path.includes('/versions')) return json(service.deleteTemplate(templateMatch[1], client));
       if (templateMatch?.[3] && method === 'POST') return json(service.setTemplateStatus(templateMatch[1], Number(templateMatch[2]), templateMatch[3] === 'publish' ? 'published' : 'archived', client));
       if (path === '/api/v1/status' && method === 'GET') return json(await service.status(printer));
       if (path === '/api/v1/previews' && method === 'POST') return json(await service.preview(await body(req), client), 201);

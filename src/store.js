@@ -80,6 +80,7 @@ export class Store {
       return saved;
     });
   }
+  deleteTemplate(id) { return this.db.prepare('DELETE FROM templates WHERE id=?').run(id).changes; }
   updateTemplateVersion(id, version, changes) {
     return this.transaction(() => {
       const before = this.template(id, version); if (!before) throw new InputError('Template version not found.', 404);

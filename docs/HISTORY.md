@@ -1,5 +1,10 @@
 # History
 
+## 0.7.0 - 2026-10-26
+
+- `DELETE /api/v1/templates/<id>` (designer keys) deletes every version of a template, but only one that was never published, so no other system can depend on it. A published template, also after it is archived, is refused with 409; archive it instead. Print journal records keep the template id they printed.
+- The template list tells designers and drafters whether every version is `archived` and whether the template was `everPublished`, so Label Studio can hide archived templates and offer deletion only where it is allowed.
+
 ## 0.6.0 - 2026-10-26
 
 - Barcode objects (`type: "barcode"`): Code 128, EAN-13, QR code and Data Matrix, with `{{field}}` data. `bwip-js` 4.11.4 (MIT) encodes the data; the layout draws the bars and modules itself as rectangles in whole printer dots (300 dpi), at least two dots per bar and three per 2D module, so codes print sharp. Linear codes print their text below (or `humanReadable: "none"`); EAN-13 adds the check digit to 12 digits. A box that is too small, or data the symbology cannot encode, is a fit problem with the reason and the size needed.
