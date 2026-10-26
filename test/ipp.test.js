@@ -35,3 +35,12 @@ test('IPP codec bounds malformed data and scalar continuations', () => {
   assert.throws(() => decodeIpp(Buffer.alloc(1024 * 1024 + 1), 1));
   for (const url of ['http://user:key@localhost', 'file:///tmp', 'http://localhost/admin']) assert.throws(() => new CupsPrinter({ serverUrl: url, queue: 'test' }));
 });
+
+test('only known DYMO driver options become job attributes', () => {
+  const printer = new CupsPrinter({ serverUrl: 'http://cups:631', queue: 'DYMO_5XL' });
+  const names = driver => printer.options('w162h90', 'test', 'application/pdf', driver).job.map(a => `${a.name}=${a.values.join(',')}`);
+  const plain = names(), chosen = names({ DymoPrintQuality: 'Graphics', DymoPrintDensity: 'Light', DymoPrintSpeed: 'Fast', DymoHalftoning: 'NLL' });
+  assert.equal(chosen.length, plain.length + 2);
+  assert.ok(chosen.includes('DymoPrintQuality=Graphics') && chosen.includes('DymoPrintDensity=Light'));
+  assert.equal(names({ DymoPrintQuality: 'Best' }).length, plain.length);
+});

@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.8.0. Version 0.5 is live: it replaced the renderer and added saved templates and several printers, and Label Studio designs and prints its templates. 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.9.0. Version 0.5 is live: it replaced the renderer and added saved templates and several printers, and Label Studio designs and prints its templates. 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -128,11 +128,13 @@ A template places objects on the readable label. Lengths are millimetres or perc
 ```
 
 - `media`: the formats the template is made for, or `["*"]`. A preview on another roll is refused.
+- `printDensity` (optional): `light`, `medium`, `normal` or `dark`, the DYMO driver's print density for this template.
+- Print quality: a label with a picture or a barcode prints with the DYMO driver's `Graphics` quality ("Barcodes and Graphics"), others with `Text`. The preview answer shows these driver options as `driver`.
 - Fields: `text` (`required`, `maxLength` up to 2000, `multiline`, `pattern`, `label`, `sample`) and `lines` (`maxItems` up to 50).
 - Objects: `text` (`font`, `size` in points or a format size such as `"$titleSize"`, `minSize` to shrink to, `bold`, `italic`, `wrap`, `breakHyphens`, `align`, `valign`, `lineHeight`, `color` black or white), `stack` (free lines from a `lines` field), `line`, `rect` and `ellipse` (`stroke` in mm, `fill` none, black or white, `radius`, `dash`).
 - `barcode`: `symbology` (`code128`, `ean13`, `qrcode`, `datamatrix`), `data` with `{{field}}` placeholders, `align` and `valign` inside the box. Linear codes fill the box width with whole-dot bars and take `humanReadable` (`below`, the default, or `none`) with `font` and `size` for the text; EAN-13 takes 12 digits (the check digit is added) or 13 with a correct check digit. QR codes take `ecLevel` (`L`, `M`, `Q`, `H`). Data that the symbology cannot encode is a fit problem with the reason.
 - `date`: the date and time of the preview (a print uses its preview, so at most ten minutes old) in `format` (`yyyy`, `yy`, `MM`, `dd`, `HH`, `mm`; default `yyyy-MM-dd`), with optional `prefix` and `suffix` and the text properties.
-- `image`: `asset` (an uploaded picture id), `fit` (`contain`, the default, keeps the proportions; `stretch` fills the box), `mode` (`threshold`, the default, or `dither` for photos and shades), `threshold` (1-254, default 128: darker is black), `invert`, `align` and `valign`. Transparent parts are white. A missing picture is a fit problem.
+- `image`: `asset` (an uploaded picture id), `fit` (`contain`, the default, keeps the proportions; `stretch` fills the box), `mode` (`threshold`, the default, or `dither` for photos and shades), `threshold` (1-254, default 128: darker is black), `lighten` (0-100: brightens the midtones first, because a thermal dot prints larger than its share; default 40 for dither, 0 for threshold), `invert`, `align` and `valign`. Transparent parts are white. A missing picture is a fit problem.
 - Built-in and published templates print for every client. Drafts and unsaved designs print only with a designer key, so an LLM tool can propose but not print a template nobody has approved.
 
 ## Rules that protect the printer and the labels

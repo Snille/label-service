@@ -12,15 +12,15 @@ const env = { LABEL_ADMIN_KEY: 'admin-key-for-tests-only', LABEL_CLIENT_KEYS: 's
 const fakeConverter = async (svg, format) => Buffer.from(format === 'pdf' ? '%PDF-fake' : 'PNG-fake');
 
 async function start(t) {
-  const store = new Store(':memory:'); let printCalls = 0;
+  const store = new Store(':memory:'); let printCalls = 0, lastPrint = null;
   const printer = { async status() { return { state: 'idle', queuedJobs: 0, acceptingJobs: true, formats: ['application/pdf'] }; },
-    async validate() {}, async print() { printCalls++; return 7; }, async job() { return { jobId: 7, state: 'completed' }; } };
+    async validate() {}, async print(...args) { printCalls++; lastPrint = args; return 7; }, async job() { return { jobId: 7, state: 'completed' }; } };
   const service = new PrintService(store, { defaults: { serverUrl: 'http://cups:631', queue: 'DYMO_5XL' }, printerFactory: () => printer, converter: fakeConverter, settleMs: 0 });
   const app = createApp({ store, env, service }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(async () => { app.closeAllConnections(); await new Promise(resolve => app.close(resolve)); store.close(); });
   const base = `http://127.0.0.1:${app.address().port}`;
   const call = (path, key, init = {}) => fetch(base + path, { ...init, headers: { ...(key ? { 'x-api-key': key } : {}), ...(init.body ? { 'content-type': 'application/json' } : {}), ...init.headers } });
-  return { base, call, prints: () => printCalls };
+  return { base, call, prints: () => printCalls, lastPrint: () => lastPrint };
 }
 
 test('client keys and roles are parsed strictly and the admin name is reserved', () => {
@@ -105,7 +105,7 @@ test('templates are saved, published and printed through the HTTP API with role 
 });
 
 test('pictures are uploaded, listed, served, used by templates and deleted only when no template uses them', async t => {
-  const { call } = await start(t);
+  const { call, lastPrint } = await start(t);
   const post = (path, key, body) => call(path, key, { method: 'POST', body: JSON.stringify(body) });
   const rgba = Buffer.alloc(8 * 4 * 4, 255), png = encodeRgba(8, 4, rgba).toString('base64');
   assert.equal((await post('/api/v1/assets', 'storage-key-for-tests', { name: 'logo', data: png })).status, 403);
@@ -124,6 +124,14 @@ test('pictures are uploaded, listed, served, used by templates and deleted only 
   const definition = { id: 'with-logo', name: 'With logo', media: ['*'], fields: {}, objects: [{ id: 'logo', type: 'image', x: 2, y: 2, w: 20, h: 10, asset: asset.id }] };
   const preview = await (await post('/api/v1/previews', 'studio-key-for-tests-only', { template: definition, fields: {} })).json();
   assert.equal(preview.printable, true); assert.match(preview.svg, /<image aria-label="logo"/);
+  // Pictures print in the driver's graphics quality, at the template's density.
+  const dense = await (await post('/api/v1/previews', 'studio-key-for-tests-only', { template: { ...definition, printDensity: 'light' }, fields: {} })).json();
+  assert.deepEqual(dense.driver, { DymoPrintQuality: 'Graphics', DymoPrintDensity: 'Light' });
+  await post('/api/v1/jobs', 'studio-key-for-tests-only', { token: dense.token, requestId: randomUUID() });
+  assert.deepEqual(lastPrint().at(-1), { DymoPrintQuality: 'Graphics', DymoPrintDensity: 'Light' });
+  const plain = await (await post('/api/v1/previews', 'studio-key-for-tests-only', { kind: 'box', test: true })).json();
+  assert.deepEqual(plain.driver, { DymoPrintQuality: 'Text' });
+  assert.equal((await post('/api/v1/previews', 'studio-key-for-tests-only', { template: { ...definition, printDensity: 'max' }, fields: {} })).status, 400);
   await post('/api/v1/templates', 'studio-key-for-tests-only', { definition });
   const used = await call(`/api/v1/assets/${asset.id}`, 'studio-key-for-tests-only', { method: 'DELETE' });
   assert.equal(used.status, 409); assert.match((await used.json()).error, /used by with-logo/);

@@ -39,6 +39,10 @@ test('pictures become black and white dots by threshold or dithering, with trans
   // Dithering spreads the grey: about as many black dots as the ramp is dark.
   const dither = toBlackAndWhite(picture, 20, 10, { mode: 'dither' }), black = [...dither.subarray(20)].filter(Boolean).length;
   assert.ok(black > 60 && black < 100, `${black} black dots`);
+  // Lightening makes fewer dots black, more so the stronger it is; 0 changes nothing.
+  const count = options => [...toBlackAndWhite(picture, 20, 10, { mode: 'dither', ...options }).subarray(20)].filter(Boolean).length;
+  assert.equal(count({ lighten: 0 }), black);
+  assert.ok(count({ lighten: 40 }) < black && count({ lighten: 100 }) < count({ lighten: 40 }), `${black} > ${count({ lighten: 40 })} > ${count({ lighten: 100 })}`);
   const bw = decodePng(encodeBlackAndWhite(20, 10, threshold));
   assert.deepEqual([bw.width, bw.height, bw.rgba[(5 * 20) * 4], bw.rgba[(5 * 20 + 19) * 4]], [20, 10, 0, 255]);
 });

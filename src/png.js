@@ -96,7 +96,10 @@ export function encodeRgba(width, height, rgba) {
 
 // Resamples to the target size in printer dots (an average over each dot's area), puts transparency on white and
 // decides black or white per dot: a fixed threshold, or Floyd-Steinberg error diffusion for photos and shades.
-export function toBlackAndWhite(picture, width, height, { mode = 'threshold', threshold = 128, invert = false } = {}) {
+// lighten (0-100) brightens the midtones first: a thermal dot prints larger than its share of the label, so a
+// dithered picture comes out darker on paper than on screen. 0 leaves the picture as it is.
+export function toBlackAndWhite(picture, width, height, { mode = 'threshold', threshold = 128, invert = false, lighten = 0 } = {}) {
+  const gamma = 1 + lighten / 50;
   const grey = new Float32Array(width * height), sx = picture.width / width, sy = picture.height / height;
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const x0 = Math.floor(x * sx), x1 = Math.max(x0 + 1, Math.floor((x + 1) * sx)), y0 = Math.floor(y * sy), y1 = Math.max(y0 + 1, Math.floor((y + 1) * sy));
@@ -106,7 +109,8 @@ export function toBlackAndWhite(picture, width, height, { mode = 'threshold', th
       const luma = 0.299 * picture.rgba[o] + 0.587 * picture.rgba[o + 1] + 0.114 * picture.rgba[o + 2];
       sum += luma * alpha + 255 * (1 - alpha); n++;
     }
-    grey[y * width + x] = invert ? 255 - sum / n : sum / n;
+    const value = invert ? 255 - sum / n : sum / n;
+    grey[y * width + x] = gamma === 1 ? value : 255 * Math.pow(value / 255, 1 / gamma);
   }
   const ink = new Uint8Array(width * height);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {

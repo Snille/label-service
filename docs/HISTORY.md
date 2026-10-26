@@ -1,5 +1,13 @@
 # History
 
+## 0.9.0 - 2026-10-26
+
+- A dithered photo printed much darker than its preview, with a grid pattern. Offline checks (no printing) showed the print path is exact: the CUPS raster that `raster2dymolw_v2` receives matches the label's dots one to one (no scaling, no grey). The driver, however, printed in its default `DymoPrintQuality=Text`. Labels with a picture or a barcode now print with `DymoPrintQuality=Graphics` ("Barcodes and Graphics"); a local, printer-less CUPS shows the option reaching the filter.
+- Templates may set `printDensity` (`light`, `medium`, `normal`, `dark`), sent as `DymoPrintDensity`. Only these two driver options with their PPD values are ever sent.
+- Image objects take `lighten` (0-100), which brightens the midtones before dithering to make up for thermal dot gain; dithered pictures default to 40.
+- The preview answer includes the driver options (`driver`).
+- Paper test of 0.8 (owner): a dithered photo printed too dark and with a grid pattern; that led to this version.
+
 ## 0.8.0 - 2026-10-26
 
 - Pictures: designers and drafters upload PNG, JPEG or SVG (at most 2 MB, 6000 pixels a side) through `POST /api/v1/assets`. They are stored as PNG in a new `assets` table (database schema 3, added automatically). JPEG and SVG become PNG through `rsvg-convert`, which reads the SVG from standard input and so never loads files or addresses it points to. Designers delete pictures that no saved template uses.

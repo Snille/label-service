@@ -262,6 +262,9 @@ export class PrintService {
     // A client may choose the text direction for this label; otherwise the template's or the format's saved direction applies.
     const style = printer.styles[printer.mediaKey];
     const layout = layoutTemplate(definition, fields, { media, style, orientation: input.orientation, picture: id => this.picture(id) });
+    // Pictures and codes print in the driver's graphics quality; a template may ask for a lighter or darker print.
+    const driver = { DymoPrintQuality: layout.items.some(i => i.type === 'image' || i.type === 'barcode') ? 'Graphics' : 'Text',
+      ...(definition.printDensity ? { DymoPrintDensity: definition.printDensity[0].toUpperCase() + definition.printDensity.slice(1) } : {}) };
     // Built-in and published templates print for every client; drafts and unsaved designs only from a designer key.
     const allowed = builtIn || ref.status === 'published' || client.role === 'designer';
     const problems = [...layout.problems, ...(allowed ? [] : [{ object: 'template', message: 'Only published templates can be printed with this key. Publish the template first.' }])];
@@ -272,9 +275,9 @@ export class PrintService {
     for (const [id, p] of this.previews) if (p.expires <= now) this.previews.delete(id);
     if (this.previews.size >= 100) throw new InputError('Too many label previews. Wait for an older preview to expire.', 429);
     const expires = now + 10 * 60 * 1000, kind = builtIn ? ref.id : 'template', template = builtIn ? undefined : { id: ref.id, version: ref.version };
-    this.previews.set(token, { config, revision, printer: printer.id, kind, template, client: client.name, reference: input.reference, layout, printable, document, expires });
+    this.previews.set(token, { config, revision, printer: printer.id, kind, template, client: client.name, reference: input.reference, layout, driver, printable, document, expires });
     return { token, expiresAt: new Date(expires).toISOString(), kind, ...(template ? { template: { ...template, status: ref.status } } : {}), printer: printer.id,
-      fields, layout, svg, ...(png ? { png } : {}), printable, warnings: problems };
+      fields, layout, driver, svg, ...(png ? { png } : {}), printable, warnings: problems };
   }
   assertPreview(preview) {
     this.assertRevision(preview.revision);
@@ -300,13 +303,13 @@ export class PrintService {
     try {
       const cups = this.printer(preview.config, printer), status = await this.settle(cups, printer); this.assertPreview(preview);
       if (!status.acceptingJobs || status.state === 'stopped' || !status.formats.includes(documentFormat)) throw new InputError('The queue is stopped, not accepting jobs or does not support PDF.', 409);
-      await cups.validate(printer.mediaKey, `label-service ${client.name}`, documentFormat); this.assertPreview(preview);
+      await cups.validate(printer.mediaKey, `label-service ${client.name}`, documentFormat, preview.driver); this.assertPreview(preview);
       const claim = this.store.claimPrint({ id: input.requestId, tokenHash, documentHash: hash(preview.document), settingsRevision: preview.revision,
         serverUrl: preview.config.serverUrl, queue: printer.queue, printer: printer.id, mediaKey: printer.mediaKey, documentFormat, createdAt: new Date().toISOString(), state: 'submitting',
         client: client.name, kind: preview.kind, ...(preview.template ? { template: preview.template } : {}), ...(preview.reference ? { reference: preview.reference } : {}) });
       if (!claim.claimed) return claim.job;
       claimed = true; sent = true;
-      const jobId = await cups.print(printer.mediaKey, `label-service ${client.name}`, preview.document, documentFormat);
+      const jobId = await cups.print(printer.mediaKey, `label-service ${client.name}`, preview.document, documentFormat, preview.driver);
       return this.store.updatePrint(input.requestId, { state: 'submitted', jobId });
     } catch (error) {
       if (claimed) {

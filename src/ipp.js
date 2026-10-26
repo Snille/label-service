@@ -1,7 +1,9 @@
 // Bounded IPP/1.1 subset: RFC 8010 encoding, RFC 8011 printer/job operations.
 import { InputError } from './validation.js';
 let nextId = 1;
-export const ippTags = { integer: 0x21, boolean: 0x22, enum: 0x23, text: 0x41, name: 0x42, keyword: 0x44, uri: 0x45, charset: 0x47, language: 0x48, mime: 0x49 };
+// Print quality and density from the DYMO PPDs (lw5xl.ppd and the other LabelWriter PPDs use the same names).
+export const driverOptions = { DymoPrintQuality: ['Text', 'Graphics'], DymoPrintDensity: ['Light', 'Medium', 'Normal', 'Dark'] };
+export const ippTags ={ integer: 0x21, boolean: 0x22, enum: 0x23, text: 0x41, name: 0x42, keyword: 0x44, uri: 0x45, charset: 0x47, language: 0x48, mime: 0x49 };
 export const ippAttribute = (name, tag, value) => ({ name, tag, values: Array.isArray(value) ? value : [value] });
 const integer = value => { const b = Buffer.alloc(4); b.writeInt32BE(value); return b; };
 
@@ -98,14 +100,17 @@ export class CupsPrinter {
       reasons: ippValues(result, 'printer-state-reasons', 4), formats: ippValues(result, 'document-format-supported', 4),
       media: ippValues(result, 'media-supported', 4), defaultMedia: one('media-default') };
   }
-  options(media, name, format) {
+  // driver: DYMO PPD options passed to the filter as job attributes, such as { DymoPrintQuality: 'Graphics' }.
+  // CUPS accepts any option name here, so only known ones are sent.
+  options(media, name, format, driver = {}) {
     return { operation: [ippAttribute('job-name', ippTags.name, name), ippAttribute('ipp-attribute-fidelity', ippTags.boolean, true),
       ippAttribute('document-format', ippTags.mime, format)],
-    job: [ippAttribute('copies', ippTags.integer, 1), ippAttribute('media', ippTags.keyword, media)] };
+    job: [ippAttribute('copies', ippTags.integer, 1), ippAttribute('media', ippTags.keyword, media),
+      ...Object.entries(driver).filter(([key, value]) => driverOptions[key]?.includes(value)).map(([key, value]) => ippAttribute(key, ippTags.keyword, value))] };
   }
-  async validate(media, name, format = 'application/pdf') { const o = this.options(media, name, format); await this.operation(0x0004, o.operation, o.job); }
-  async print(media, name, document, format = 'application/pdf') {
-    const o = this.options(media, name, format); const result = await this.operation(0x0002, o.operation, o.job, document);
+  async validate(media, name, format = 'application/pdf', driver = {}) { const o = this.options(media, name, format, driver); await this.operation(0x0004, o.operation, o.job); }
+  async print(media, name, document, format = 'application/pdf', driver = {}) {
+    const o = this.options(media, name, format, driver); const result = await this.operation(0x0002, o.operation, o.job, document);
     const id = ippValues(result, 'job-id', 2)[0];
     if (!Number.isInteger(id) || id < 1) throw new InputError('CUPS did not return a valid job identifier. Check the queue before retrying.', 502);
     return id;

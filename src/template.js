@@ -50,13 +50,14 @@ function font(item, name) {
 const placeholders = text => [...text.matchAll(/\{\{\s*([^}]*?)\s*\}\}/g)].map(m => m[1]);
 
 export function validateTemplate(definition) {
-  only(definition, ['id', 'name', 'description', 'media', 'orientation', 'fields', 'objects'], 'template');
+  only(definition, ['id', 'name', 'description', 'media', 'orientation', 'printDensity', 'fields', 'objects'], 'template');
   if (!templateId.test(definition.id || '') || builtInTemplates.some(t => t.id === definition.id)) throw fail('id must be 2-64 lower-case letters, digits or hyphens and not a built-in name.');
   if (!short(definition.name, 120) || !definition.name.trim()) throw fail('name is required (at most 120 characters).');
   if (definition.description !== undefined && !short(definition.description, 1000)) throw fail('description is at most 1000 characters.');
   if (!Array.isArray(definition.media) || !definition.media.length || definition.media.some(k => k !== '*' && !labelMediaPresets.some(p => p.key === k))
     || new Set(definition.media).size !== definition.media.length) throw fail(`media lists label formats (${labelMediaPresets.map(p => p.key).join(', ')}) or "*".`);
   if (definition.orientation !== undefined && !labelOrientations.includes(definition.orientation)) throw fail('orientation is portrait or landscape.');
+  if (definition.printDensity !== undefined && !['light', 'medium', 'normal', 'dark'].includes(definition.printDensity)) throw fail('printDensity is light, medium, normal or dark.');
   only(definition.fields, Object.keys(definition.fields || {}), 'fields');
   const fields = Object.entries(definition.fields);
   if (fields.length > 40) throw fail('at most 40 fields.');
@@ -103,7 +104,8 @@ export function validateTemplate(definition) {
       if (item.ecLevel !== undefined && (item.symbology !== 'qrcode' || !['L', 'M', 'Q', 'H'].includes(item.ecLevel))) throw fail(`${name}.ecLevel is L, M, Q or H (QR codes only).`);
       size(item.size, `${name}.size`); font(item, name);
     } else if (item.type === 'image') {
-      only(item, [...common, 'asset', 'fit', 'mode', 'threshold', 'invert', 'align', 'valign'], name);
+      only(item, [...common, 'asset', 'fit', 'mode', 'threshold', 'lighten', 'invert', 'align', 'valign'], name);
+      if (item.lighten !== undefined && !(Number.isInteger(item.lighten) && item.lighten >= 0 && item.lighten <= 100)) throw fail(`${name}.lighten is 0-100.`);
       if (typeof item.asset !== 'string' || !assetId.test(item.asset)) throw fail(`${name}.asset is the id of an uploaded picture.`);
       if (item.fit !== undefined && !['contain', 'stretch'].includes(item.fit)) throw fail(`${name}.fit is contain or stretch.`);
       if (item.mode !== undefined && !['threshold', 'dither'].includes(item.mode)) throw fail(`${name}.mode is threshold or dither.`);
