@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.9.1. Version 0.5 is live: it replaced the renderer and added saved templates and several printers, and Label Studio designs and prints its templates. 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.9.1, live together with Label Studio 0.6.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
