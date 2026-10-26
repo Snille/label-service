@@ -1,5 +1,11 @@
 # History
 
+## 0.6.0 - 2026-10-26
+
+- Barcode objects (`type: "barcode"`): Code 128, EAN-13, QR code and Data Matrix, with `{{field}}` data. `bwip-js` 4.11.4 (MIT) encodes the data; the layout draws the bars and modules itself as rectangles in whole printer dots (300 dpi), at least two dots per bar and three per 2D module, so codes print sharp. Linear codes print their text below (or `humanReadable: "none"`); EAN-13 adds the check digit to 12 digits. A box that is too small, or data the symbology cannot encode, is a fit problem with the reason and the size needed.
+- Date objects (`type: "date"`): the preview's date and time in a format (`yyyy`, `yy`, `MM`, `dd`, `HH`, `mm`) with text before and after. The stack files set `TZ=Europe/Stockholm` for the api container.
+- Verified: tests for dot alignment, text placement, check digits and fit problems; a rendered PNG through `rsvg-convert` in the image shows all four codes and the local time.
+
 ## 0.5.1 - 2026-10-26
 
 - Fixed: an empty line between paragraphs in a text field disappeared, so paragraphs ran together in the preview and on paper. Text wrapping now keeps it as an empty row of the same height; empty lines before the first and after the last paragraph are still dropped. Text that used empty lines (for example a multi-line box description) can now need more rows. Found on paper with Label Studio on the 102 x 210 mm shipping roll; a test covers it.

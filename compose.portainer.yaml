@@ -2,7 +2,7 @@
 name: label-service
 services:
   cups:
-    image: ${LABEL_CUPS_IMAGE:-mrsnille/label-service-cups:0.5.1}
+    image: ${LABEL_CUPS_IMAGE:-mrsnille/label-service-cups:0.6.0}
     init: true
     environment:
       CUPS_QUEUE: ${CUPS_QUEUE:-DYMO_5XL}
@@ -14,7 +14,7 @@ services:
       - cups-cache:/var/cache/cups
     restart: unless-stopped
   api:
-    image: ${LABEL_API_IMAGE:-mrsnille/label-service:0.5.1}
+    image: ${LABEL_API_IMAGE:-mrsnille/label-service:0.6.0}
     depends_on: [cups]
     ports:
       # Publish on the LAN only; never forward this port from the internet.
@@ -30,6 +30,8 @@ services:
       PRINTER_NAME: ${PRINTER_NAME:-}
       PRINTER_HOST: ${PRINTER_HOST}
       PRINTER_PORT: ${PRINTER_PORT:-9100}
+      # Date objects print in this time zone.
+      TZ: ${TZ:-Europe/Stockholm}
     volumes:
       - api-data:/data
     restart: unless-stopped

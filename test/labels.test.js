@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { labelLayout, labelMediaPresets, layoutTemplate, testLabel } from '../src/labels.js';
+import { labelLayout, labelMediaPresets, layoutTemplate, testLabel, formatDate } from '../src/labels.js';
 import { layoutSvg, pageSvg } from '../src/svg.js';
 import { validateTemplate, builtInTemplates } from '../src/template.js';
 import { rsvgConvert } from '../src/convert.js';
@@ -97,6 +97,49 @@ test('saved templates validate strictly and lay out text, lines, rectangles and 
     const bad = structuredClone(shipping); change(bad); assert.throws(() => validateTemplate(bad), pattern);
   }
   assert.ok(builtInTemplates.every(t => t.objects.length));
+});
+
+test('barcodes, QR and Data Matrix codes print as whole-dot modules, with readable fit problems', () => {
+  const media = labelMediaPresets.find(p => p.key === 'w162h90'), dot = 72 / 300;
+  const definition = { id: 'codes', name: 'Codes', media: ['*'], fields: { code: { type: 'text' } }, objects: [
+    { id: 'bar', type: 'barcode', x: 2, y: 2, w: 40, h: 12, symbology: 'code128', data: '{{code}}' },
+    { id: 'qr', type: 'barcode', x: 44, y: 2, w: 12, h: 12, symbology: 'qrcode', data: 'https://example.com/{{code}}', ecLevel: 'M' },
+    { id: 'ean', type: 'barcode', x: 2, y: 16, w: 40, h: 12, symbology: 'ean13', data: '590123412345' },
+    { id: 'dm', type: 'barcode', x: 44, y: 16, w: 10, h: 10, symbology: 'datamatrix', data: '{{code}}' }] };
+  validateTemplate(structuredClone(definition));
+  const layout = layoutTemplate(definition, { code: 'AB-12345' }, { media, style: media.style });
+  assert.deepEqual(layout.problems, []);
+  const [bar, qr, ean, dm] = layout.items;
+  const whole = value => Math.abs(value / dot - Math.round(value / dot)) < 0.01;
+  for (const item of layout.items) assert.ok(item.rects.length && item.rects.every(r => whole(r.x) && whole(r.w)), `${item.id} is not on the dot grid`);
+  // Linear bars are at least two dots wide; 2D modules at least three; the text sits under the bars.
+  assert.ok(bar.rects.every(r => r.w >= 2 * dot - 0.01)); assert.deepEqual(bar.rows.map(r => r.text), ['AB-12345']);
+  assert.ok(bar.rows[0].baseline > bar.rects[0].y + bar.rects[0].h);
+  assert.equal(ean.rows[0].text, '5901234123457');
+  assert.ok(qr.rects.every(r => r.h >= 3 * dot - 0.01) && !qr.rows.length && dm.rects.length);
+  assert.match(layoutSvg(layout), /<path aria-label="bar" fill="black" d="M[\d.]+ [\d.]+h/);
+
+  const bad = layoutTemplate({ ...definition, fields: { code: { type: 'text', required: false } }, objects: [{ ...definition.objects[2], data: '5901234123458' },
+    { ...definition.objects[0], data: 'AB-12345', w: 8 }, { ...definition.objects[1], w: 4, h: 4 }, { ...definition.objects[3], id: 'empty' }] }, {}, { media, style: media.style });
+  assert.deepEqual(bad.problems.map(p => p.object), ['ean', 'bar', 'qr', 'empty']);
+  assert.match(bad.problems[0].message, /not a valid EAN-13: Incorrect EAN-13 check digit/);
+  assert.match(bad.problems[2].message, /needs a square of at least 6.3 mm/);
+  for (const [change, pattern] of [[o => { o.symbology = 'pdf417'; }, /symbology/], [o => { o.humanReadable = 'below'; o.symbology = 'qrcode'; }, /linear barcodes only/],
+    [o => { o.ecLevel = 'M'; }, /QR codes only/], [o => { o.data = '{{nope}}'; }, /not a text field/], [o => { o.color = 'white'; }, /unsupported property/]]) {
+    const wrong = structuredClone(definition); change(wrong.objects[0]); assert.throws(() => validateTemplate(wrong), pattern);
+  }
+});
+
+test('a date object prints the preview time in its format, with text before and after', () => {
+  const media = labelMediaPresets.find(p => p.key === 'w162h90');
+  const definition = { id: 'dated', name: 'Dated', media: ['*'], fields: {}, objects: [
+    { id: 'when', type: 'date', x: 2, y: 2, w: 50, h: 5, format: 'dd.MM.yy HH:mm', prefix: 'Packed {{x}} ', suffix: '!', size: 8 }] };
+  validateTemplate(structuredClone(definition));
+  const layout = layoutTemplate(definition, {}, { media, style: media.style, now: new Date(2026, 0, 5, 7, 9) });
+  assert.deepEqual(layout.items[0].rows.map(r => r.text), ['Packed x 05.01.26 07:09!']);
+  assert.equal(formatDate(new Date(2026, 11, 31, 23, 59)), '2026-12-31');
+  const wrong = structuredClone(definition); wrong.objects[0].format = 'a\nb';
+  assert.throws(() => validateTemplate(wrong), /format/);
 });
 
 test('an empty line between paragraphs stays as an empty row; leading and trailing ones are dropped', () => {

@@ -13,9 +13,13 @@ function shape(item) {
   return `<rect x="${item.x}" y="${item.y}" width="${item.w}" height="${item.h}"${item.radius ? ` rx="${item.radius}"` : ''}${fill}${stroke}/>`;
 }
 
+const rows = item => item.rows.map(row =>
+  `<path aria-label="${escape(row.text)}" fill="${ink(item.color)}" d="${outline(fontFor(row.family, row), row.text, row.x, row.baseline, row.size)}"/>`).join('');
+// Bars and 2D modules: one path of whole-dot rectangles, then the human-readable text.
+const bars = item => (item.rects.length ? `<path aria-label="${escape(item.id)}" fill="black" d="${item.rects.map(r => `M${r.x} ${r.y}h${r.w}v${r.h}h${-r.w}z`).join('')}"/>` : '') + rows(item);
+
 function content(layout) {
-  return layout.items.map(item => item.type !== 'text' ? shape(item) : item.rows.map(row =>
-    `<path aria-label="${escape(row.text)}" fill="${ink(item.color)}" d="${outline(fontFor(row.family, row), row.text, row.x, row.baseline, row.size)}"/>`).join('')).join('');
+  return layout.items.map(item => item.type === 'text' ? rows(item) : item.type === 'barcode' ? bars(item) : shape(item)).join('');
 }
 
 // Readable preview of a label layout. It shows the text as it reads, not turned onto the roll.

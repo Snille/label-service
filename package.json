@@ -12,6 +12,7 @@
     "audit:data": "node src/cli.js audit"
   },
   "dependencies": {
+    "bwip-js": "4.11.4",
     "opentype.js": "2.0.0"
   }
 }

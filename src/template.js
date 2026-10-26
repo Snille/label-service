@@ -6,7 +6,11 @@ import { fontFamilies } from './fonts.js';
 
 export const templateId = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const fieldName = /^[a-zA-Z][a-zA-Z0-9_]{0,39}$/;
-const objectTypes = ['text', 'stack', 'line', 'rect', 'ellipse'];
+const objectTypes = ['text', 'stack', 'line', 'rect', 'ellipse', 'barcode', 'date'];
+export const symbologies = ['code128', 'ean13', 'qrcode', 'datamatrix'];
+export const twoDimensional = symbology => ['qrcode', 'datamatrix'].includes(symbology);
+// Date formats use yyyy, yy, MM, dd, HH and mm; anything else is printed as it is.
+const dateFormat = /^[\p{L}\p{N}\p{P}\p{Zs}]{1,40}$/u;
 const fail = message => new InputError(`Invalid template: ${message}`);
 const only = (value, keys, name) => {
   object(value, name);
@@ -88,6 +92,19 @@ export function validateTemplate(definition) {
       only(item, [...common, 'items', 'font', 'size', 'minSize', 'align', 'valign', 'lineHeight', 'color'], name);
       const ref = placeholders(item.items || '')[0];
       if (typeof item.items !== 'string' || definition.fields[ref]?.type !== 'lines') throw fail(`${name}.items must be "{{field}}" naming a lines field.`);
+      size(item.size, `${name}.size`); size(item.minSize, `${name}.minSize`); font(item, name);
+    } else if (item.type === 'barcode') {
+      only(item, [...common, 'symbology', 'data', 'humanReadable', 'font', 'size', 'align', 'valign', 'ecLevel'], name);
+      if (!symbologies.includes(item.symbology)) throw fail(`${name}.symbology is one of ${symbologies.join(', ')}.`);
+      if (!short(item.data, 2000) || !item.data) throw fail(`${name}.data is required (at most 2000 characters).`);
+      for (const ref of placeholders(item.data)) if (definition.fields[ref]?.type !== 'text') throw fail(`${name}.data uses {{${ref}}}, which is not a text field.`);
+      if (item.humanReadable !== undefined && (twoDimensional(item.symbology) || !['below', 'none'].includes(item.humanReadable))) throw fail(`${name}.humanReadable is below or none (linear barcodes only).`);
+      if (item.ecLevel !== undefined && (item.symbology !== 'qrcode' || !['L', 'M', 'Q', 'H'].includes(item.ecLevel))) throw fail(`${name}.ecLevel is L, M, Q or H (QR codes only).`);
+      size(item.size, `${name}.size`); font(item, name);
+    } else if (item.type === 'date') {
+      only(item, [...common, 'format', 'prefix', 'suffix', 'font', 'size', 'minSize', 'bold', 'italic', 'align', 'valign', 'color'], name);
+      if (item.format !== undefined && !dateFormat.test(item.format)) throw fail(`${name}.format is 1-40 characters such as "yyyy-MM-dd HH:mm".`);
+      for (const key of ['prefix', 'suffix']) if (item[key] !== undefined && !short(item[key], 200)) throw fail(`${name}.${key} is at most 200 characters.`);
       size(item.size, `${name}.size`); size(item.minSize, `${name}.minSize`); font(item, name);
     } else {
       only(item, [...common, 'stroke', 'fill', 'radius', 'dash'], name);

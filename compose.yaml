@@ -32,6 +32,8 @@ services:
       PRINTER_NAME: ${PRINTER_NAME:-}
       PRINTER_HOST: ${PRINTER_HOST:-}
       PRINTER_PORT: ${PRINTER_PORT:-9100}
+      # Date objects print in this time zone.
+      TZ: ${TZ:-Europe/Stockholm}
     volumes:
       - api-data:/data
     restart: unless-stopped
