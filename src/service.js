@@ -38,7 +38,7 @@ const wasPublished = record => record.status === 'published' || Boolean(record.p
 // Templates may name only approved rolls; a roll that is still testing prints nothing but its test print.
 const approvedMedia = config => allMedia(config).filter(p => p.status === 'approved');
 const approval = roll => JSON.stringify([roll.status, roll.margins && [roll.margins.top, roll.margins.right, roll.margins.bottom, roll.margins.left],
-  roll.offset && [roll.offset.x, roll.offset.y], roll.maxDots, roll.test?.requestId, roll.test?.approvedAt, roll.test?.approvedBy]);
+  roll.offset && [roll.offset.x, roll.offset.y], roll.maxDots, roll.page, roll.test?.requestId, roll.test?.approvedAt, roll.test?.approvedBy]);
 const sameRoll = (a, b) => approval(a) === approval(b);
 const summary = record => ({ id: record.id, name: record.name, builtIn: false, version: record.version, status: record.status, media: record.definition.media,
   description: record.definition.description, fields: record.definition.fields, createdAt: record.createdAt, createdBy: record.createdBy });
@@ -155,10 +155,12 @@ export class PrintService {
       // The test print was made with the calibration the roll had then; it is still the current one unless approved since.
       const media = allMedia(config).find(p => p.key === input.key), stored = builtIn ? config.measured[input.key]?.test : roll.test;
       if (stored && (stored.requestId === job.id || job.createdAt < stored.approvedAt)) throw new InputError('The roll was measured with this or a later test print. Print the test label again.', 409);
-      const result = evaluate(media, d), test = { requestId: job.id, approvedAt: new Date().toISOString(), approvedBy: client.name };
+      const jobPrinter = config.printers.find(p => p.id === job.printer), wideHead = Boolean(printerModel(jobPrinter?.model)?.wide ?? true);
+      const result = evaluate(media, d, { wideHead }), test = { requestId: job.id, approvedAt: new Date().toISOString(), approvedBy: client.name };
       if (result.invalid) throw new InputError(`These distances give a scale of ${Math.round(result.scale * 100)} % across and ${Math.round(result.scaleY * 100)} % along the label. Measure again from each edge of the label to its line, ${calibrationMark(media)} mm inside.`);
       const calibration = result.shrink ? { maxDots: result.maxDots, test } : { ...(media.maxDots ? { maxDots: media.maxDots } : {}), offset: result.offset, margins: result.margins, test };
-      if (builtIn) config.measured = { ...config.measured, [input.key]: calibration };
+      // A built-in format notes the kind of page it was measured on (src/store.js drops calibrations from named pages).
+      if (builtIn) config.measured = { ...config.measured, [input.key]: { ...calibration, page: printPage(media, { wideHead }).custom ? 'custom' : 'named' } };
       else { for (const k of ['margins', 'offset', 'maxDots']) delete roll[k]; Object.assign(roll, calibration, { status: result.shrink ? 'testing' : 'approved' }); }
       validatePrinting(config);
       if (input.check) return { result, affected: result.shrink ? [] : this.marginUsers(config, input.key) };
@@ -471,7 +473,7 @@ export class PrintService {
     const style = printer.styles[printer.mediaKey];
     // The test print measures the edges, so it ignores margins measured before and keeps the roll's natural direction.
     // Every page is printed with the roll's calibration, the test print too, so its frame is read against it.
-    const page = printPage(media), orientation = calibration ? definition.orientation : input.orientation;
+    const page = printPage(media, { wideHead: Boolean(printerModel(printer.model)?.wide) }), orientation = calibration ? definition.orientation : input.orientation;
     const shaped = builtIn && !calibration ? fitBuiltIn(definition, labelPage(media, orientation || definition.orientation || style.orientation).margins) : definition;
     const lay = values => Object.assign(layoutTemplate(shaped, values, calibration ? { media: { ...media, margins: undefined }, style, orientation }
       : { media, style, orientation, picture: id => this.picture(id) }), { print: page });

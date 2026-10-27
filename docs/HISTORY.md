@@ -1,5 +1,11 @@
 # History
 
+## 0.15.2 - 2026-10-27
+
+- Found the cause of the shrinking: the named page sizes of DYMO's lw5xl.ppd. A 60 mm custom page with the 57 × 32 mm test print on it printed at true size (frame 46.7 × 21.5 mm of 47.15 × 21.75), where the named w162h90 page had shrunk it to 89 %. DYMO Connect fills the label too. The roll width was never the limit; 0.15.0 and 0.15.1 gave the 57 mm roll a narrow image and a 7 mm right edge for nothing.
+- On a printer with a 4-inch head, a built-in format now prints on a custom page wider than the label, drawn from its left edge, where the printer puts the image. CUPS took custom sizes within a few points of a named one for it (57.9 mm became w162h90, 164 × 286 pt became 166.56 × 288), so the page keeps 9 pt from every named size of lw5xl.ppd: 172, 90, 82 and 186 pt for the four narrow formats, each checked with cupsfilter to give a raster of the whole page. A narrow head keeps the named size. The narrower image (maxDots) stays for a roll that would still shrink.
+- A built-in format's calibration notes the page it was measured on; one from before (measured on the named page, such as the 57 × 32 mm roll's narrow image) is dropped, so the roll is measured anew with one test print.
+
 ## 0.15.1 - 2026-10-27
 
 - The test print is a frame of straight lines, each with its outer edge 5 mm inside its edge of the label, instead of short rulers with small ticks: a calliper is laid against a long straight line far more easily (the owner's suggestion). The lines stay visible on the narrow page of a shrinking roll, which cuts about 3-4 mm at the sides. The calibration is the same, with 5 mm instead of the 6 mm mark; a roll keeps its calibration, and the next test print is read against it.

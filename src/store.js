@@ -77,7 +77,10 @@ export class Store {
     const row = this.db.prepare("SELECT record FROM settings WHERE id='printing'").get(); if (!row) return null;
     // Settings saved before a format was added get that format's defaults; formats no longer offered are dropped.
     const saved = migratePrinting(JSON.parse(row.record)), defaults = defaultLabelStyles(allMedia(saved));
-    return { ...saved, rolls: saved.rolls || [], measured: saved.measured || {}, printers: saved.printers.map(printer => ({ ...printer, model: printerModel(printer.model) ? printer.model : 'lw5xl',
+    // A built-in format measured before 0.15.2 was measured on its named page size, which the printer shrinks; 0.15.2
+    // prints it on a custom page and notes that as page. Such an older calibration is dropped, to be made anew.
+    const measured = Object.fromEntries(Object.entries(saved.measured || {}).filter(([key, m]) => key.startsWith('custom_') || m.page));
+    return { ...saved, rolls: saved.rolls || [], measured, printers: saved.printers.map(printer => ({ ...printer, model: printerModel(printer.model) ? printer.model : 'lw5xl',
       styles: Object.fromEntries(Object.entries(defaults).map(([key, style]) => [key, printer.styles?.[key] || style])) })) };
   }
   writePrinting(config) {

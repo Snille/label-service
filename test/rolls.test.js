@@ -40,13 +40,22 @@ test('the calibration follows the owner\'s measurements of the shipping labels a
   // edge to the frame line 6.3, 3.4, 4.6 and 6.0 mm.
   const shipping = labelMediaPresets.find(p => p.sku === '2166659');
   assert.deepEqual(evaluate(shipping, { left: 6.3, right: 3.4, top: 4.6, bottom: 6 }), { scale: 1, scaleY: 1, offset: { x: -1.45, y: 0.7 }, margins: { left: 1.3, right: 1, top: 1, bottom: 1 } });
-  // S0722540, shrunk to about 89 %: the frame lines 42.1 mm apart across and 19.3 mm along (47.15 and 21.75 drawn).
+  // S0722540 on the 5XL prints on a custom page 10 pt wider than the label, drawn from its left edge, because the named
+  // size w162h90 makes the printer shrink the print; a printer with a narrow head keeps the named size.
   const small = labelMediaPresets.find(p => p.sku === 'S0722540');
-  assert.equal(dotsSent(small), 656);
+  assert.deepEqual(printPage(small), { key: 'custom_60.68x31.75mm_60.68x31.75mm', widthPt: 172, heightPt: 90, dx: 0, dy: 0, widthMm: 60.68, heightMm: 31.75, custom: true });
+  assert.equal(printPage(small, { wideHead: false }).key, 'w162h90');
+  // Every named roll gets a custom page that CUPS cannot take for a named size (checked with cupsfilter: 172, 90, 82 and
+  // 186 pt wide pages gave rasters of the full page).
+  assert.deepEqual(labelMediaPresets.filter(p => !p.key.startsWith('custom_')).map(p => printPage(p).widthPt), [172, 90, 82, 186]);
+  assert.equal(dotsSent(small), 720);
+  // True to size and 0.75 mm to the right, as the 60 mm test page printed: one test print calibrates it.
+  assert.deepEqual(evaluate(small, { left: 5.75, right: 4.25, top: 5, bottom: 5 }), { scale: 1, scaleY: 1, offset: { x: -0.75, y: 0 }, margins: { left: 1, right: 1, top: 1, bottom: 1 } });
+  // A print that still shrinks gets a narrower image.
   const shrunk = evaluate(small, { left: 7.5, right: 7.55, top: 6.2, bottom: 6.25 });
-  assert.deepEqual([shrunk.shrink, shrunk.scale, shrunk.maxDots], [true, 0.89, 576]);
+  assert.deepEqual([shrunk.shrink, shrunk.scale, shrunk.maxDots], [true, 0.89, 632]);
   // The next test print goes on a page as wide as the printer takes, with the label centred on it.
-  const narrow = { ...small, maxDots: shrunk.maxDots };
+  const narrow = { ...small, maxDots: 576 };
   assert.deepEqual(printPage(narrow), { key: 'custom_48.77x31.75mm_48.77x31.75mm', widthPt: 138.24, heightPt: 90, dx: -11.88, dy: 0, widthMm: 48.77, heightMm: 31.75, custom: true });
   assert.equal(dotsSent(narrow), 576);
   // Read on that print, true to size: the page covers 48.8 mm of the label, so the sides keep about 4 mm.
@@ -96,33 +105,33 @@ test('a new roll prints only its test label until its test print is approved', a
   assert.equal(store.audit().ok, true);
 });
 
-test('a built-in format that the printer shrinks gets a narrower image first, then its offset and edges', async t => {
-  const { service, state } = setup(t);
-  const edge = { id: 'edge-57', name: 'Edge 57', media: ['w162h90'], fields: {}, objects: [{ id: 'frame', type: 'rect', x: 2, y: 3, w: 20, h: 10 }] };
+test('a built-in format prints on a wider custom page and is calibrated with one test print', async t => {
+  const { service, state, store } = setup(t);
+  const edge = { id: 'edge-57', name: 'Edge 57', media: ['w162h90'], fields: {}, objects: [{ id: 'frame', type: 'rect', x: 0.5, y: 3, w: 20, h: 10 }] };
   service.saveTemplate({ definition: edge }, designer);
   const first = await testPrint(service);
-  assert.equal(first.mediaKey, 'w162h90');
-  const shrunk = approve(service, 'w162h90', first.id, { left: 7.5, right: 7.55, top: 6.2, bottom: 6.25 });
-  assert.deepEqual([shrunk.result.shrink, shrunk.config.measured.w162h90.maxDots, shrunk.config.measured.w162h90.margins], [true, 576, undefined]);
-  // The roll keeps printing, now on the narrower page; the next test print goes there too.
-  const second = await testPrint(service);
-  assert.equal(second.printMedia, 'custom_48.77x31.75mm_48.77x31.75mm');
-  const read = { left: 5.4, right: 4.45, top: 5, bottom: 5 };
-  // The built-in labels move in from the sides; the saved frame, 2 mm from the left, would stop printing.
-  const check = approve(service, 'w162h90', second.id, read, true);
+  assert.deepEqual([first.mediaKey, first.printMedia], ['w162h90', 'custom_60.68x31.75mm_60.68x31.75mm']);
+  const read = { left: 5.75, right: 4.25, top: 5, bottom: 5 };
+  // The built-in labels keep 3 mm at the sides; the saved frame, 0.5 mm from the left, would stop printing.
+  const check = approve(service, 'w162h90', first.id, read, true);
   assert.deepEqual(check.affected.map(a => [a.id, a.objects]), [['edge-57', ['frame']]]);
-  assert.equal(service.config().measured.w162h90.margins, undefined);
-  approve(service, 'w162h90', second.id, read);
-  assert.deepEqual(service.formats().media.margins, { left: 4.6, right: 3.7, top: 1, bottom: 1 });
+  assert.equal(service.config().measured.w162h90, undefined);
+  approve(service, 'w162h90', first.id, read);
+  assert.deepEqual(service.config().measured.w162h90.page, 'custom');
+  assert.deepEqual([service.formats().media.margins, service.formats().media.offset], [{ left: 1, right: 1, top: 1, bottom: 1 }, { x: -0.75, y: 0 }]);
   const box = await service.preview({ test: true }, 'storagesystem');
-  assert.equal(box.printable, true);
+  assert.deepEqual([box.printable, box.layout.print.dx], [true, -2.13]);
   const job = await service.submit({ token: box.token, requestId: randomUUID() }, 'storagesystem');
-  assert.equal(job.printMedia, 'custom_48.77x31.75mm_48.77x31.75mm');
+  assert.equal(job.printMedia, 'custom_60.68x31.75mm_60.68x31.75mm');
   assert.ok(state.document.length > 0);
   // Not through the settings.
-  assert.throws(() => update(service, c => { c.measured.w162h90.margins.left = 1; }), /only with its approved test print/);
+  assert.throws(() => update(service, c => { c.measured.w162h90.margins.left = 2; }), /only with its approved test print/);
   assert.throws(() => update(service, c => { delete c.measured.w162h90; }), /only with its approved test print/);
-  assert.throws(() => approve(service, 'w54h144', second.id, read), /Print the test label/);
+  assert.throws(() => approve(service, 'w54h144', first.id, read), /Print the test label/);
+  // A calibration from before 0.15.2, measured on the named page, is dropped.
+  const config = service.config(); config.measured.w162h90 = { maxDots: 576, test: config.measured.w162h90.test };
+  store.writePrinting(config);
+  assert.deepEqual(service.config().measured, {});
 });
 
 test('a test print that did not reach the printer cannot be approved', async t => {

@@ -116,7 +116,8 @@ export function validatePrinting(config) {
     for (const [key, m] of Object.entries(config.measured)) {
       if (!labelMediaPresets.some(p => p.key === key)) throw new InputError('Measured margins are for the built-in formats.');
       object(m, 'measured format');
-      if (Object.keys(m).some(k => !['margins', 'offset', 'maxDots', 'test'].includes(k))) throw new InputError('Measured formats are { margins, offset, maxDots, test }.');
+      if (Object.keys(m).some(k => !['margins', 'offset', 'maxDots', 'page', 'test'].includes(k))) throw new InputError('Measured formats are { margins, offset, maxDots, page, test }.');
+      if (m.page !== undefined && !['named', 'custom'].includes(m.page)) throw new InputError('page is named or custom.');
       validateTest(m.test); validateCalibration(m, m.margins !== undefined);
     }
   }
