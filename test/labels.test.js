@@ -5,6 +5,7 @@ import { labelLayout, labelMediaPresets, layoutTemplate, testLabel, formatDate }
 import { layoutSvg, pageSvg } from '../src/svg.js';
 import { validateTemplate, builtInTemplates } from '../src/template.js';
 import { rsvgConvert } from '../src/convert.js';
+import { encodeRgba } from '../src/png.js';
 
 test('the box label keeps the original positions, real font metrics and Swedish glyphs', () => {
   const layout = labelLayout(testLabel); assert.deepEqual(layout.warnings, []);
@@ -249,6 +250,58 @@ test('SVG uploads become PNG pictures through rsvg-convert, without reading outs
     const safe = await service.uploadAsset({ name: 'outside', data: Buffer.from(outside).toString('base64') }, { name: 'studio', role: 'designer' });
     assert.equal(safe.type, 'svg'); // the outside file is not drawn: the picture is empty, not an error
   } finally { store.close(); }
+});
+
+// A small real PDF: two pages of 100 x 50 points, each with a black square on the left half.
+function tinyPdf(pages = 2) {
+  const nl = '\n', objects = ['<< /Type /Catalog /Pages 2 0 R >>', `<< /Type /Pages /Count ${pages} /Kids [${Array.from({ length: pages }, (_, i) => `${3 + i * 2} 0 R`).join(' ')}] >>`];
+  for (let i = 0; i < pages; i++) {
+    const draw = '0 0 0 rg 0 0 50 50 re f';
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 50] /Contents ${4 + i * 2} 0 R >>`, `<< /Length ${draw.length} >>${nl}stream${nl}${draw}${nl}endstream`);
+  }
+  let body = '%PDF-1.4' + nl; const offsets = [];
+  objects.forEach((o, i) => { offsets.push(body.length); body += `${i + 1} 0 obj${nl}${o}${nl}endobj${nl}`; });
+  const xref = body.length;
+  body += `xref${nl}0 ${objects.length + 1}${nl}0000000000 65535 f ${nl}${offsets.map(o => `${String(o).padStart(10, '0')} 00000 n ${nl}`).join('')}`;
+  return Buffer.from(`${body}trailer${nl}<< /Size ${objects.length + 1} /Root 1 0 R >>${nl}startxref${nl}${xref}${nl}%%EOF${nl}`, 'latin1');
+}
+const designerClient = { name: 'studio', role: 'designer' };
+
+test('a PDF page becomes a picture, and any picture can be cropped on upload', async () => {
+  const { Store } = await import('../src/store.js'), { PrintService } = await import('../src/service.js');
+  const store = new Store(':memory:');
+  // Stand-in for poppler: a 40 x 20 page, black on the left half.
+  const rgba = Buffer.alloc(40 * 20 * 4, 255); for (let y = 0; y < 20; y++) for (let x = 0; x < 20; x++) rgba.fill(0, (y * 40 + x) * 4, (y * 40 + x) * 4 + 3);
+  const pages = [];
+  const service = new PrintService(store, { pdfReader: async (bytes, page) => { pages.push(page); if (page > 2) throw new Error('2 pages'); return { png: encodeRgba(40, 20, rgba), page, pages: 2 }; } });
+  try {
+    const pdf = tinyPdf().toString('base64');
+    const whole = await service.uploadAsset({ name: 'label.pdf', data: pdf }, designerClient);
+    assert.deepEqual([whole.type, whole.width, whole.height, whole.page, whole.pages], ['pdf', 40, 20, 1, 2]);
+    const right = await service.uploadAsset({ name: 'label.pdf', data: pdf, page: 2, crop: { x: 0.5, y: 0, w: 0.5, h: 1 } }, designerClient);
+    assert.deepEqual([right.width, right.height, right.page, right.cropped], [20, 20, 2, true]); assert.deepEqual(pages, [1, 2]);
+    const cropped = service.picture(right.id);
+    assert.equal(cropped.rgba[0], 255); // the right half is white
+    const png = encodeRgba(40, 20, rgba).toString('base64');
+    assert.equal((await service.uploadAsset({ name: 'left', data: png, crop: { x: 0, y: 0, w: 0.5, h: 1 } }, designerClient)).width, 20);
+    for (const crop of [{ x: 0.6, y: 0, w: 0.5, h: 1 }, { x: 0, y: 0, w: 0, h: 1 }, { x: 0, y: 0, w: 1 }, { x: 0, y: 0, w: 1, h: 1, z: 1 }]) {
+      await assert.rejects(service.uploadAsset({ name: 'bad', data: png, crop }, designerClient), /crop is/);
+    }
+    await assert.rejects(service.uploadAsset({ name: 'bad', data: png, page: 2 }, designerClient), /only for a PDF/);
+    await assert.rejects(service.uploadAsset({ name: 'bad', data: pdf, page: 0 }, designerClient), /page is a page number/);
+  } finally { store.close(); }
+});
+
+// Runs where poppler is installed (the Docker build).
+const poppler = spawnSync('pdftoppm', ['-v']).status === 0;
+test('poppler draws the chosen page of a real PDF and counts its pages', { skip: !poppler && 'poppler is not installed' }, async () => {
+  const { pdfPage } = await import('../src/pdf.js'), { decodePng } = await import('../src/png.js');
+  const { png, page, pages } = await pdfPage(tinyPdf(), 2), picture = decodePng(png);
+  assert.deepEqual([page, pages], [2, 2]);
+  assert.ok(Math.abs(picture.width - 417) <= 1 && Math.abs(picture.height - 208) <= 1, `${picture.width} x ${picture.height}`); // 300 dpi
+  assert.equal(picture.rgba[(100 * picture.width + 50) * 4], 0); assert.equal(picture.rgba[(100 * picture.width + 350) * 4], 255);
+  await assert.rejects(pdfPage(tinyPdf(), 3), /has 2 pages/);
+  await assert.rejects(pdfPage(Buffer.from('%PDF-1.4 broken'), 1), /could not be read|no pages/);
 });
 
 test('dithered pictures default to threshold 140 and lighten 15, threshold pictures to 128 and 0', () => {

@@ -4,7 +4,8 @@ import { CupsPrinter } from './ipp.js';
 import { defaultLabelStyles, labelMediaPresets, labelTemplates, layoutTemplate, testLabel, testLines } from './labels.js';
 import { printerModels, printerModel, mediaForModel } from './label-media.js';
 import { builtInTemplates, validateTemplate, templateId, assetId } from './template.js';
-import { decodePng, isPng } from './png.js';
+import { decodePng, isPng, encodeRgba } from './png.js';
+import { isPdf, pdfPage } from './pdf.js';
 import { fontFamilies } from './fonts.js';
 import { readDymoRoll } from './dymo-roll.js';
 import { layoutSvg, pageSvg } from './svg.js';
@@ -37,8 +38,8 @@ const summary = record => ({ id: record.id, name: record.name, builtIn: false, v
 export class PrintService {
   // settleMs: a DYMO printer still feeds and cuts after CUPS reports a job completed, and its driver refuses the next job
   // (com.dymo.busy-error) if that job arrives too soon. Each printer therefore rests this long after its last job.
-  constructor(store, { defaults = {}, printerFactory = config => new CupsPrinter(config), rollReader = readDymoRoll, converter = rsvgConvert, settleMs = 10000, queueWaitMs = 120000 } = {}) {
-    this.store = store; this.defaults = defaults; this.printerFactory = printerFactory; this.rollReader = rollReader; this.converter = converter;
+  constructor(store, { defaults = {}, printerFactory = config => new CupsPrinter(config), rollReader = readDymoRoll, converter = rsvgConvert, pdfReader = pdfPage, settleMs = 10000, queueWaitMs = 120000 } = {}) {
+    this.store = store; this.defaults = defaults; this.printerFactory = printerFactory; this.rollReader = rollReader; this.converter = converter; this.pdfReader = pdfReader;
     this.settleMs = settleMs; this.queueWaitMs = queueWaitMs;
     this.previews = new Map(); this.pictures = new Map(); this.busy = new Set(); this.lastRollCheck = new Map(); this.lastPrint = new Map();
   }
@@ -156,25 +157,43 @@ export class PrintService {
       ? { status, publishedAt: new Date().toISOString(), publishedBy: client.name } : { status, archivedAt: new Date().toISOString(), archivedBy: client.name });
   }
   // Pictures: PNG is kept as uploaded; JPEG and SVG are turned into PNG by rsvg-convert (an SVG is drawn 1600 pixels
-  // wide, since it has no pixels of its own). Every picture is decoded once to check it.
+  // wide, since it has no pixels of its own); one page of a PDF (page, 1 by default) is drawn by poppler at up to
+  // 300 dpi. crop {x, y, w, h}, shares of the picture from 0 to 1, keeps only that part. Every picture is decoded once
+  // to check it.
   async uploadAsset(input, client) {
     client = who(client); object(input);
     if (!canDraft(client)) throw new InputError('Uploading pictures requires a designer key.', 403);
-    if (Object.keys(input).some(k => !['name', 'data'].includes(k)) || typeof input.data !== 'string') throw new InputError('Send { name, data } with the picture as base64.');
+    if (Object.keys(input).some(k => !['name', 'data', 'page', 'crop'].includes(k)) || typeof input.data !== 'string') throw new InputError('Send { name, data, page?, crop? } with the picture as base64.');
+    if (input.page !== undefined && !(Number.isInteger(input.page) && input.page >= 1 && input.page <= 9999)) throw new InputError('page is a page number, 1 for the first.');
+    const crop = input.crop;
+    if (crop !== undefined && (object(crop, 'crop'), Object.keys(crop).some(k => !['x', 'y', 'w', 'h'].includes(k))
+      || !['x', 'y', 'w', 'h'].every(k => typeof crop[k] === 'number' && crop[k] >= 0 && crop[k] <= 1) || crop.w <= 0 || crop.h <= 0 || crop.x + crop.w > 1.0001 || crop.y + crop.h > 1.0001)) {
+      throw new InputError('crop is { x, y, w, h }, shares of the picture from 0 to 1.');
+    }
     const name = String(input.name ?? 'picture').trim().slice(0, 120) || 'picture', bytes = Buffer.from(input.data, 'base64');
     if (!bytes.length) throw new InputError('The picture is empty.');
     if (bytes.length > maxPictureBytes) throw new InputError('The picture is larger than 2 MB. Make it smaller first.', 413);
-    let type, png;
+    let type, png, pdf;
+    if (input.page !== undefined && !isPdf(bytes)) throw new InputError('page is only for a PDF.');
     if (isPng(bytes)) { type = 'png'; png = bytes; }
+    else if (isPdf(bytes)) { type = 'pdf'; pdf = await this.pdfReader(bytes, input.page || 1); png = pdf.png; }
     else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
       type = 'jpeg'; const size = jpegSize(bytes);
       png = await this.converter(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size.width}" height="${size.height}"><image width="${size.width}" height="${size.height}" xlink:href="data:image/jpeg;base64,${bytes.toString('base64')}"/></svg>`, 'png', { dpi: 96, background: false });
     } else if (/^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE svg[^>]*>\s*)?<svg[\s>]/i.test(bytes.toString('utf8', 0, 4096))) {
       type = 'svg'; png = await this.converter(bytes.toString('utf8'), 'png', { dpi: 96, width: 1600, background: false });
-    } else throw new InputError('Upload a PNG, JPEG or SVG picture.', 415);
-    const picture = decodePng(png);
+    } else throw new InputError('Upload a PNG, JPEG or SVG picture, or a PDF.', 415);
+    let picture = decodePng(png);
     if (picture.width > 6000 || picture.height > 6000) throw new InputError('The picture is larger than 6000 pixels on a side. Make it smaller first.', 413);
-    const record = { id: randomBytes(6).toString('hex'), name, type, width: picture.width, height: picture.height, bytes: png.length, createdAt: new Date().toISOString(), createdBy: client.name };
+    if (crop) {
+      const x = Math.floor(crop.x * picture.width), y = Math.floor(crop.y * picture.height);
+      const w = Math.max(1, Math.min(picture.width - x, Math.round(crop.w * picture.width))), h = Math.max(1, Math.min(picture.height - y, Math.round(crop.h * picture.height)));
+      const rgba = Buffer.alloc(w * h * 4);
+      for (let row = 0; row < h; row++) picture.rgba.copy(rgba, row * w * 4, ((y + row) * picture.width + x) * 4, ((y + row) * picture.width + x + w) * 4);
+      picture = { width: w, height: h, rgba }; png = encodeRgba(w, h, rgba);
+    }
+    const record = { id: randomBytes(6).toString('hex'), name, type, width: picture.width, height: picture.height, bytes: png.length, createdAt: new Date().toISOString(), createdBy: client.name,
+      ...(pdf ? { page: pdf.page, pages: pdf.pages } : {}), ...(crop ? { cropped: true } : {}) };
     this.pictures.set(record.id, picture);
     return this.store.addAsset(record, png);
   }

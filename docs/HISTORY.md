@@ -1,5 +1,13 @@
 # History
 
+## 0.12.0 - 2026-10-27
+
+Phase 3: a PDF page as a picture, for shipping labels.
+
+- A picture upload takes one page of a PDF (`page`, 1 by default). poppler's `pdftoppm` draws it at up to 300 dpi (smaller when the page is larger than 4000 pixels on a side) in a private temporary folder; `pdfinfo` counts the pages, and a page past the last is refused with the number of pages. The record has `type: "pdf"`, `page` and `pages`. The images install `poppler-utils`.
+- `crop` `{x, y, w, h}`, shares of the picture from 0 to 1, keeps part of any uploaded picture, so a shipping label can be cut from an A4 page.
+- Tests: a stand-in reader for the crop and the checks, and a real two-page PDF drawn by poppler in the Docker build.
+
 ## 0.11.0 - 2026-10-27
 
 - A preview takes `rows`, a list of field values (1 to `batchLimit`), and makes one PDF with one page per row and one token, so a batch prints as one CUPS job. The owner's paper test of 0.10 printed 5 labels as 5 jobs exactly 10.0 seconds apart (the pause the DYMO driver needs between jobs); DYMO Connect sends one job and the printer runs the labels in one go. Decision B8 changed accordingly: the duplicate guard covers the whole batch.
