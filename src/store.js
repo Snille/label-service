@@ -78,8 +78,9 @@ export class Store {
     // Settings saved before a format was added get that format's defaults; formats no longer offered are dropped.
     const saved = migratePrinting(JSON.parse(row.record)), defaults = defaultLabelStyles(allMedia(saved));
     // A built-in format measured before 0.15.2 was measured on its named page size, which the printer shrinks; 0.15.2
-    // prints it on a custom page and notes that as page. Such an older calibration is dropped, to be made anew.
-    const measured = Object.fromEntries(Object.entries(saved.measured || {}).filter(([key, m]) => key.startsWith('custom_') || m.page));
+    // prints it on a custom page and notes that as page. Such an older calibration is dropped, to be made anew, and so
+    // is a narrower page (maxDots) that 0.15.3 gave a custom page from a short reading (0.15.4 takes those as true size).
+    const measured = Object.fromEntries(Object.entries(saved.measured || {}).filter(([key, m]) => key.startsWith('custom_') || (m.page && !(m.page === 'custom' && m.maxDots))));
     return { ...saved, rolls: saved.rolls || [], measured, printers: saved.printers.map(printer => ({ ...printer, model: printerModel(printer.model) ? printer.model : 'lw5xl',
       styles: Object.fromEntries(Object.entries(defaults).map(([key, style]) => [key, printer.styles?.[key] || style])) })) };
   }

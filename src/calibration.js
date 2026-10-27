@@ -63,7 +63,10 @@ export function evaluate(media, distances, options) {
   const { left, right, top, bottom } = distances;
   // The two lines are W - 2R apart in the drawing and (label width - left - right) apart on paper.
   const scaleX = (W - left - right) / (W - 2 * R), scaleY = (H - top - bottom) / (H - 2 * R);
-  if (scaleX < 0.98) {
+  // Only a named page shrinks. On a custom page a small shortfall is the ruler, not the printer: S0722550 read 2-3 %
+  // short over its 9 mm frame, and the narrower, centred page that followed put the drawing on its fold.
+  if (page.custom && scaleX < 0.95) return { invalid: true, scale: fixed(scaleX), scaleY: fixed(scaleY) };
+  if (!page.custom && scaleX < 0.98) {
     // Shrunk: send no more dots than the printer printed, with a little room, in whole bytes.
     const maxDots = Math.floor(dotsSent(media, options) * scaleX * 0.99 / 8) * 8;
     return { shrink: true, scale: fixed(scaleX), scaleY: fixed(scaleY), maxDots };

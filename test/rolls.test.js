@@ -53,9 +53,14 @@ test('the calibration follows the owner\'s measurements of the shipping labels a
   assert.deepEqual(evaluate(small, { left: 5.75, right: 4.25, top: 5, bottom: 5 }), { scale: 1, scaleY: 1, offset: { x: -0.75, y: 0 }, margins: { left: 1, right: 1, top: 1, bottom: 1 } });
   // The owner's reading on the wider page: true to size across; along, the die-cut label is longer than its page.
   assert.deepEqual(evaluate(small, { top: 5.6, right: 4.1, bottom: 5.5, left: 5.7 }), { scale: 1, scaleY: 0.95, offset: { x: -0.8, y: -0.05 }, margins: { left: 1, right: 1, top: 1, bottom: 1 } });
-  // A print that still shrinks gets a narrower image.
-  const shrunk = evaluate(small, { left: 7.5, right: 7.55, top: 6.2, bottom: 6.25 });
-  assert.deepEqual([shrunk.shrink, shrunk.scale, shrunk.maxDots], [true, 0.89, 632]);
+  // On a custom page a short reading is the ruler: S0722550 read 3 % short over its 9 mm frame and stays true to size.
+  const tiny = labelMediaPresets.find(p => p.sku === 'S0722550');
+  const fold = evaluate(tiny, { left: 5.2, right: 5.05, top: 5, bottom: 5 });
+  assert.deepEqual([fold.shrink, fold.scale, fold.offset], [undefined, 0.97, { x: -0.05, y: 0 }]);
+  assert.equal(evaluate(small, { left: 7.5, right: 7.55, top: 6.2, bottom: 6.25 }).invalid, true);
+  // A named page that still shrinks (a printer with a narrow head) gets a narrower image.
+  const shrunk = evaluate(small, { left: 7.5, right: 7.55, top: 6.2, bottom: 6.25 }, { wideHead: false });
+  assert.deepEqual([shrunk.shrink, shrunk.scale, shrunk.maxDots], [true, 0.89, 576]);
   // The next test print goes on a page as wide as the printer takes, with the label centred on it.
   const narrow = { ...small, maxDots: 576 };
   assert.deepEqual(printPage(narrow), { key: 'custom_48.77x31.75mm_48.77x31.75mm', widthPt: 138.24, heightPt: 90, dx: -11.88, dy: 0, widthMm: 48.77, heightMm: 31.75, custom: true });
@@ -132,6 +137,10 @@ test('a built-in format prints on a wider custom page and is calibrated with one
   assert.throws(() => approve(service, 'w54h144', first.id, read), /Print the test label/);
   // A calibration from before 0.15.2, measured on the named page, is dropped.
   const config = service.config(); config.measured.w162h90 = { maxDots: 576, test: config.measured.w162h90.test };
+  store.writePrinting(config);
+  assert.deepEqual(service.config().measured, {});
+  // So is a narrower page that 0.15.3 gave a custom page from a short reading; it put S0722550's drawing on its fold.
+  config.measured = { w54h144: { maxDots: 360, page: 'custom', test: config.measured.w162h90.test } };
   store.writePrinting(config);
   assert.deepEqual(service.config().measured, {});
 });

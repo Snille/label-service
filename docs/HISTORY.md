@@ -1,5 +1,9 @@
 # History
 
+## 0.15.4 - 2026-10-27
+
+- A test print on a custom page no longer gives a narrower image. The owner's reading of the 19 × 51 mm roll (S0722550) came out 2-3 % short over its 9 mm frame, so 0.15.3 gave it a 360-dot page with the label centred on it; the printer puts the image at its left edge, so the drawing moved about 6 mm across, onto the fold. Only a named page shrinks (a printer with a narrow head); on a custom page a reading 95-102 % across is taken as true size, and one below 95 % is refused as a misreading. Such a 0.15.3 calibration is dropped, so the roll is measured anew with one test print.
+
 ## 0.15.3 - 2026-10-27
 
 - The test print's reading along the label may be 7 % off the drawing instead of 2 %: the owner's first reading of the 57 × 32 mm roll on the wider page was true to size across (100 %) but 95 % along, because the die-cut label is longer than its 31.75 mm page (the frame itself measured 99 % on the 60 mm test page). The printer scales both ways alike, so the width decides. That reading now gives an offset of -0.8 mm across and 1 mm edges all round.
