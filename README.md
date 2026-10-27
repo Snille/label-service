@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.14.2, live together with Label Studio 0.12.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.14.3, with Label Studio 0.12.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -47,7 +47,7 @@ The environment creates the first printer (`PRINTER_MODEL`, `CUPS_QUEUE`, `PRINT
 
 The five formats below are built in. The admin page adds more (decision B11). Reading a roll that is not known yet shows Add this roll, which fills the form from the roll's chip: its article number and size (bytes 40-43 of the ESC U answer, checked on five rolls). The chip gives the whole label, so check the size with a ruler: a fold-over label such as S0722550 reports 27.9 mm across but prints on a 19 mm face. To add a roll by hand, give the article number the roll reports (`S0722540` or seven digits), an optional name, and the label size in millimetres, the width across the print head first. An added roll prints through the PPD's custom page size (`custom_40x30mm_40x30mm`), as the shipping labels do; one wider than 62 mm is offered only to the wide models.
 
-A new roll is `testing` until its test print is approved (decision B12). While it is testing, only the admin can print its test label: a ruler from the middle of each edge inwards, with a tick every 0.5 mm. Where the first tick shows on paper is the margin of that edge. The admin enters the four margins and approves that print; then clients see the roll and templates can use it. An object that reaches into a margin is a fit problem, like one outside the label. The built-in formats have no margins yet. A roll that a printer has loaded or a saved template names cannot be removed.
+A new roll is `testing` until its test print is approved (decision B12). While it is testing, only the admin can print its test label: a ruler from the middle of each edge inwards, with a tick every 0.5 mm. Where the first tick shows on paper is the margin of that edge. The admin enters the four margins and approves that print; then clients see the roll and templates can use it. An object that reaches into a margin is a fit problem, like one outside the label. The built-in formats are measured the same way: their test print and approval are on the same page, they keep printing meanwhile, and their margins are saved in the settings (`measured`). Before a roll's margins are saved, the admin page lists the templates, built-in ones included, that reach into them and would stop printing on that roll; the built-in labels cannot be changed, so such margins deserve a second look. A roll that a printer has loaded or a saved template names cannot be removed.
 
 ## Run locally (Docker Desktop)
 
@@ -107,10 +107,10 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `POST /api/v1/previews` | client | See below → `{token, expiresAt, kind, template?, printer, layout, svg, png?, printable, warnings}`. Nothing prints. |
 | `POST /api/v1/jobs` | client | `{token, requestId}` (UUIDs) → the journal record. Prints one copy. |
 | `GET /api/v1/jobs`, `GET /api/v1/jobs/<requestId>` | client (own) / admin (all) | Journal records, with live CUPS job state for one job. |
-| `GET`, `PUT /api/v1/settings` | admin | `{revision, config}`: `serverUrl`, `defaultPrinter`, `batchLimit`, `rolls` and `printers`. A new roll is saved as `testing`; only the approve call makes it approved. |
+| `GET`, `PUT /api/v1/settings` | admin | `{revision, config}`: `serverUrl`, `defaultPrinter`, `batchLimit`, `rolls`, `measured` (the built-in formats' margins) and `printers`. A new roll is saved as `testing`; only the approve call makes it approved. |
 | `POST /api/v1/roll` | admin | `{revision, printer?}`. Reads the loaded roll once; needs an idle, empty queue. |
 | `GET /api/v1/roll/readings` | admin | The last 20 roll readings: printer, time, article, labels remaining and the chip's whole answers as hex (`raw.consumable` from ESC U, `raw.status` from ESC A). |
-| `POST /api/v1/rolls/approve` | admin | `{revision, key, requestId, margins: {top, right, bottom, left}}`: approves a roll's test print (a `calibration` job on that roll that reached CUPS) with the margins read on paper, 0-10 mm. |
+| `POST /api/v1/rolls/approve` | admin | `{revision, key, requestId, margins: {top, right, bottom, left}}`: approves a roll's test print (a `calibration` job on that roll that reached CUPS) with the margins read on paper, 0-10 mm; an added roll or a built-in format. With `check: true` it saves nothing and answers `{affected}`: the built-in kinds and saved templates (newest version) that reach into those margins, with the objects. |
 
 Preview request: `{kind? | template?, version?, fields | test: true | rows, check?, printer?, mediaKey?, orientation?: 'portrait'|'landscape', reference?, include?: ['png']}`.
 

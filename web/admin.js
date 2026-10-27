@@ -60,14 +60,15 @@ function showRolls() {
     const tr = document.createElement('tr');
     cell(tr, p.name); cell(tr, p.sku); cell(tr, sizeOf(p));
     cell(tr, p.custom ? (p.status === 'approved' ? 'approved' : 'testing: needs its test print') : 'built in');
-    cell(tr, p.custom ? marginsOf(p.margins) || 'not measured yet' : 'not measured');
-    cell(tr, p.custom ? actions(button(p.status === 'approved' ? 'Test again' : 'Test print', async () => { testing = p.key; rollPreview = null; showRollTest(); $('roll-test').scrollIntoView(); }),
-      button('Remove', async () => {
-        if (!confirm(`Remove the roll ${p.name}? Templates and printers must not use it.`)) return;
-        await save(config => { config.rolls = config.rolls.filter(r => customKey(r) !== p.key); }, `Removed ${p.name}.`);
-        if (testing === p.key) testing = '';
-        showRollTest();
-      })) : '');
+    cell(tr, marginsOf(p.margins) || (p.custom ? 'not measured yet' : 'not measured'));
+    // Built-in formats are measured with the same test print; only added rolls can be removed.
+    const test = button(p.margins ? 'Test again' : 'Test print', async () => { testing = p.key; rollPreview = null; showRollTest(); $('roll-test').scrollIntoView(); });
+    cell(tr, actions(test, ...(p.custom ? [button('Remove', async () => {
+      if (!confirm(`Remove the roll ${p.name}? Templates and printers must not use it.`)) return;
+      await save(config => { config.rolls = config.rolls.filter(r => customKey(r) !== p.key); }, `Removed ${p.name}.`);
+      if (testing === p.key) testing = '';
+      showRollTest();
+    })] : [])));
     return tr;
   }));
   showRollTest();
@@ -75,7 +76,7 @@ function showRolls() {
 // The last test print of the roll that reached CUPS: that is the print to approve.
 const testJob = mediaKey => journal.find(job => job.kind === 'calibration' && job.mediaKey === mediaKey && job.state === 'submitted');
 function showRollTest() {
-  const media = settings.mediaPresets.find(p => p.key === testing && p.custom);
+  const media = settings.mediaPresets.find(p => p.key === testing);
   $('roll-test').hidden = !media; if (!media) return;
   const loaded = printer().mediaKey === media.key, supported = modelOf(printer()).media.includes(media.key);
   $('roll-test-title').textContent = `Test print: ${media.name} on ${printer().name}`;
@@ -233,8 +234,19 @@ $('roll-print').addEventListener('click', () => run(async () => {
 }));
 $('roll-approve').addEventListener('submit', event => { event.preventDefault(); run(async () => {
   const job = testJob(testing), margins = Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [side, Number($(`margin-${side}`).value)]));
-  settings = await api('/rolls/approve', { revision: settings.revision, key: testing, requestId: job.id, margins });
-  fill(); invalidate(); message(`Approved ${presetName(testing)}. Templates can use it now.`);
+  const request = { revision: settings.revision, key: testing, requestId: job.id, margins };
+  // Templates that reach into the new margins would stop printing; name them and ask first.
+  const { affected } = await api('/rolls/approve', { ...request, check: true });
+  // The built-in labels (used by other systems) cannot be changed, so margins that stop them deserve a second look.
+  const builtIns = affected.filter(a => a.status === 'built in');
+  if (affected.length && !confirm(`These templates reach into the new margins and will not print on ${presetName(testing)} until they are changed:\n\n`
+    + `${affected.map(a => `${a.name} (${a.id}${a.version ? ` v${a.version}, ${a.status}` : `, ${a.status}`}): ${a.objects.join(', ')}`).join('\n')}`
+    + `${builtIns.length ? '\n\nThe built-in labels cannot be changed: other systems would get refusals for them on this roll. They have printed right on paper, so check the margins you read first.' : ''}`
+    + '\n\nApprove these margins anyway?')) {
+    message('Not approved. Check the margins, or change those templates first.'); return;
+  }
+  settings = await api('/rolls/approve', request);
+  fill(); invalidate(); message(`Approved the margins of ${presetName(testing)}.${affected.length ? ` ${affected.length} template(s) need changes before they print on it.` : ''}`);
 }); });
 $('printer-model').addEventListener('change', showConnection);
 $('printer-connection').addEventListener('change', showConnection);

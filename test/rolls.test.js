@@ -63,6 +63,28 @@ test('a new roll prints only its test label until its test print is approved', a
   assert.equal(store.audit().ok, true);
 });
 
+test('a built-in format is measured the same way, and the approval first names the templates that reach into the margins', async t => {
+  const { service } = setup(t);
+  const job = await testPrint(service);
+  assert.equal(job.mediaKey, 'w162h90');
+  const edge = { id: 'edge-57', name: 'Edge 57', media: ['w162h90'], fields: {}, objects: [{ id: 'frame', type: 'rect', x: 0.5, y: 3, w: 20, h: 10 }] };
+  service.saveTemplate({ definition: edge }, designer);
+  // 3 mm on top reaches the built-in box label's title band (6/90 of 32 mm); 1 mm on the left reaches the saved frame.
+  const wide = { top: 3, right: 0.5, bottom: 1, left: 1 }, small = { top: 1, right: 0.5, bottom: 1, left: 0.4 };
+  const check = service.approveRoll({ revision: service.revision(), key: 'w162h90', requestId: job.id, margins: wide, check: true }, 'admin');
+  assert.deepEqual(check.affected.map(a => [a.id, a.objects]), [['box', ['title']], ['location', ['location']], ['lines', ['lines']], ['edge-57', ['frame']]]);
+  assert.equal(service.config().measured.w162h90, undefined);
+  assert.deepEqual(service.approveRoll({ revision: service.revision(), key: 'w162h90', requestId: job.id, margins: small, check: true }, 'admin').affected, []);
+  service.approveRoll({ revision: service.revision(), key: 'w162h90', requestId: job.id, margins: small }, 'admin');
+  assert.deepEqual(service.formats().media.margins, small);
+  assert.deepEqual(service.config().measured.w162h90.margins, small);
+  assert.equal((await service.preview({ test: true }, 'storagesystem')).printable, true);
+  // Not through the settings.
+  assert.throws(() => update(service, c => { c.measured.w162h90.margins = wide; }), /only with its approved test print/);
+  assert.throws(() => update(service, c => { delete c.measured.w162h90; }), /only with its approved test print/);
+  assert.throws(() => service.approveRoll({ revision: service.revision(), key: 'w54h144', requestId: job.id, margins: small }, 'admin'), /Print the test label/);
+});
+
 test('a test print that did not reach the printer cannot be approved', async t => {
   const { service, state } = setup(t);
   update(service, c => { c.rolls.push(roll); c.printers[0].mediaKey = key; });

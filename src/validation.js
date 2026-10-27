@@ -72,6 +72,13 @@ export function validateMargins(margins) {
   }
   return margins;
 }
+// The approved test print a roll's margins were read on.
+function validateTest(test) {
+  const t = object(test, 'test');
+  if (Object.keys(t).sort().join(',') !== 'approvedAt,approvedBy,requestId' || !/^[a-f0-9-]{36}$/.test(t.requestId) || !Number.isFinite(Date.parse(t.approvedAt)) || !clientName.test(t.approvedBy)) {
+    throw new InputError('Measured margins name their approved test print.');
+  }
+}
 // A roll added on the admin page. It is "testing" until its test print is approved; then it has the measured margins
 // and the request id of that test print.
 export function validateRoll(roll) {
@@ -81,13 +88,8 @@ export function validateRoll(roll) {
   if (roll.name !== undefined && (typeof roll.name !== 'string' || !roll.name.trim() || roll.name.length > 60)) throw new InputError('A roll name is at most 60 characters.');
   if (!tenths(roll.widthMm, 10, 110) || !tenths(roll.heightMm, 10, 400)) throw new InputError('A roll is 10-110 mm wide (across the print head) and 10-400 mm long, in steps of 0.1 mm.');
   if (!['testing', 'approved'].includes(roll.status)) throw new InputError('A roll is testing or approved.');
-  if (roll.status === 'approved') {
-    validateMargins(roll.margins);
-    const t = object(roll.test, 'test');
-    if (Object.keys(t).sort().join(',') !== 'approvedAt,approvedBy,requestId' || !/^[a-f0-9-]{36}$/.test(t.requestId) || !Number.isFinite(Date.parse(t.approvedAt)) || !clientName.test(t.approvedBy)) {
-      throw new InputError('An approved roll names its test print.');
-    }
-  } else if (roll.margins !== undefined || roll.test !== undefined) throw new InputError('A roll gets margins when its test print is approved.');
+  if (roll.status === 'approved') { validateMargins(roll.margins); validateTest(roll.test); }
+  else if (roll.margins !== undefined || roll.test !== undefined) throw new InputError('A roll gets margins when its test print is approved.');
   return roll;
 }
 
@@ -95,8 +97,18 @@ export function validateRoll(roll) {
 // loaded roll and text styles.
 export function validatePrinting(config) {
   object(config, 'printing');
-  if (Object.keys(config).some(key => !['serverUrl', 'defaultPrinter', 'printers', 'batchLimit', 'rolls'].includes(key))) throw new InputError('Unsupported printing setting.');
+  if (Object.keys(config).some(key => !['serverUrl', 'defaultPrinter', 'printers', 'batchLimit', 'rolls', 'measured'].includes(key))) throw new InputError('Unsupported printing setting.');
   serverUrl(config.serverUrl);
+  // The built-in formats' margins, by format key, each from an approved test print.
+  if (config.measured !== undefined) {
+    object(config.measured, 'measured');
+    for (const [key, m] of Object.entries(config.measured)) {
+      if (!labelMediaPresets.some(p => p.key === key)) throw new InputError('Measured margins are for the built-in formats.');
+      object(m, 'measured format');
+      if (Object.keys(m).sort().join(',') !== 'margins,test') throw new InputError('Measured margins are { margins, test }.');
+      validateMargins(m.margins); validateTest(m.test);
+    }
+  }
   if (config.rolls !== undefined) {
     if (!Array.isArray(config.rolls) || config.rolls.length > 50) throw new InputError('At most 50 added rolls.');
     config.rolls.forEach(validateRoll);

@@ -3,7 +3,7 @@ import { writeFileSync, renameSync } from 'node:fs';
 import { InputError, object, validatePrinting, validateMargins } from './validation.js';
 import { CupsPrinter } from './ipp.js';
 import { defaultLabelStyles, labelTemplates, layoutTemplate, testLabel, testLines } from './labels.js';
-import { printerModels, printerModel, mediaForModel, allMedia, customMediaKey } from './label-media.js';
+import { printerModels, printerModel, mediaForModel, allMedia, customMediaKey, labelMediaPresets } from './label-media.js';
 import { builtInTemplates, validateTemplate, templateId, assetId, calibrationTemplate } from './template.js';
 import { decodePng, isPng, encodeRgba } from './png.js';
 import { isPdf, pdfPage } from './pdf.js';
@@ -68,7 +68,7 @@ export class PrintService {
     const saved = this.store.printing(); if (saved) return saved;
     const d = this.defaults, model = printerModel(d.printerModel) || printerModels[0];
     const id = (d.queue || 'dymo').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'dymo';
-    return { serverUrl: d.serverUrl || '', defaultPrinter: id, batchLimit: 50, rolls: [], printers: [{
+    return { serverUrl: d.serverUrl || '', defaultPrinter: id, batchLimit: 50, rolls: [], measured: {}, printers: [{
       id, name: d.printerName || `DYMO ${model.name}`, model: model.key, enabled: Boolean(d.serverUrl && d.queue), queue: d.queue || '',
       mediaKey: mediaForModel(model.key)[0].key, styles: defaultLabelStyles(),
       rollReader: { enabled: Boolean(d.printerHost) && model.rollReader, host: d.printerHost || '', port: d.printerPort || 9100 } }] };
@@ -109,6 +109,9 @@ export class PrintService {
           throw new InputError('A new roll starts as testing, and it is approved with its test print on the admin page.');
         }
       }
+      // The built-in formats' margins change only with an approved test print, too.
+      const measured = c => JSON.stringify(Object.entries(c.measured || {}).sort().map(([k, m]) => [k, approval({ status: 'approved', ...m })]));
+      if (measured(config) !== measured(before)) throw new InputError('The margins of a built-in format change only with its approved test print on the admin page.');
       // A removed roll must not be loaded in a printer (checked below) or named by a saved template.
       const kept = new Set(allMedia(config).map(p => p.key)), removed = allMedia(before).filter(p => p.custom && !kept.has(p.key)).map(p => p.key);
       const users = removed.length ? [...new Set(this.store.allTemplateVersions().filter(t => t.definition.media.some(k => removed.includes(k))).map(t => t.id))] : [];
@@ -125,21 +128,50 @@ export class PrintService {
     });
   }
   // Approves a roll's test print (decision B12): the request id of a test print of that roll that reached CUPS, and the
-  // margins read from the paper. Approving again with a new test print measures the roll anew.
+  // margins read from the paper. Approving again with a new test print measures the roll anew. A built-in format keeps
+  // its margins in config.measured. check: true answers which templates would reach into the new margins (they would
+  // no longer print) and saves nothing.
   approveRoll(input, client) {
     client = who(client); object(input);
-    if (Object.keys(input).some(k => !['revision', 'key', 'requestId', 'margins'].includes(k))) throw new InputError('Send { revision, key, requestId, margins }.');
+    if (Object.keys(input).some(k => !['revision', 'key', 'requestId', 'margins', 'check'].includes(k)) || (input.check !== undefined && typeof input.check !== 'boolean')) {
+      throw new InputError('Send { revision, key, requestId, margins, check? }.');
+    }
     return this.store.transaction(() => {
       this.assertRevision(input.revision);
-      const config = structuredClone(this.config()), roll = config.rolls.find(r => customMediaKey(r.widthMm, r.heightMm) === input.key);
-      if (!roll) throw new InputError('Only a roll added on the admin page is approved here.', 404);
+      const config = structuredClone(this.config()), builtIn = labelMediaPresets.some(p => p.key === input.key);
+      const roll = builtIn ? null : config.rolls.find(r => customMediaKey(r.widthMm, r.heightMm) === input.key);
+      if (!builtIn && !roll) throw new InputError('Unknown roll.', 404);
       const job = typeof input.requestId === 'string' ? this.store.printJob(input.requestId) : null;
       if (!job || job.kind !== 'calibration' || job.mediaKey !== input.key) throw new InputError('Print the test label of this roll first, then approve that print.', 409);
       if (job.state !== 'submitted') throw new InputError(`The test print is ${job.state}; it did not reach the printer. Print it again.`, 409);
-      Object.assign(roll, { status: 'approved', margins: validateMargins(structuredClone(input.margins)), test: { requestId: job.id, approvedAt: new Date().toISOString(), approvedBy: client.name } });
-      this.store.writePrinting(validatePrinting(config));
+      const margins = validateMargins(structuredClone(input.margins)), test = { requestId: job.id, approvedAt: new Date().toISOString(), approvedBy: client.name };
+      if (builtIn) config.measured = { ...config.measured, [input.key]: { margins, test } };
+      else Object.assign(roll, { status: 'approved', margins, test });
+      validatePrinting(config);
+      if (input.check) return { affected: this.marginUsers(config, input.key) };
+      this.store.writePrinting(config);
       return this.view();
     });
+  }
+  // The built-in kinds and saved templates (the newest version of each) for a roll that reach into its margins, laid
+  // out with their sample values in their own text direction or the one each printer saved for the roll.
+  marginUsers(config, key) {
+    const media = allMedia(config).find(p => p.key === key), affected = [];
+    const candidates = [...builtInTemplates.map(definition => ({ definition, ref: { id: definition.id, name: definition.name, status: 'built in' } })),
+      ...this.store.templateIds().map(id => this.store.templateVersions(id).at(-1)).filter(t => t.definition.media.includes('*') || t.definition.media.includes(key))
+        .map(t => ({ definition: t.definition, ref: { id: t.id, name: t.name, version: t.version, status: t.status } }))];
+    const styles = [...new Map(config.printers.map(p => p.styles[key]).filter(Boolean).map(s => [JSON.stringify(s), s])).values()];
+    for (const { definition, ref } of candidates) {
+      const objects = new Set();
+      for (const style of styles) {
+        try {
+          const layout = layoutTemplate(definition, this.sampleFields(definition, media), { media, style, picture: id => this.picture(id) });
+          for (const p of layout.problems) if (p.message.includes('does not print')) objects.add(p.object);
+        } catch { /* a template whose samples do not lay out is not judged here */ }
+      }
+      if (objects.size) affected.push({ ...ref, objects: [...objects] });
+    }
+    return affected;
   }
   // The CUPS queues of printers added on the admin page, one line each ("queue model device"), written whole for the cups
   // container, which creates, changes and removes those queues. The first printer's queue comes from the environment.

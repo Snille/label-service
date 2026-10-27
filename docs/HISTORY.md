@@ -1,5 +1,13 @@
 # History
 
+## 0.14.3 - 2026-10-27
+
+The rest of decision B12: the five built-in formats are measured too.
+
+- Every roll on the admin page, built-in ones included, has Test print. A built-in format keeps printing while it is measured; its approved margins are saved as `measured` in the settings (no schema change) and apply like an added roll's. They change only through the approve call.
+- `POST /api/v1/rolls/approve` takes built-in format keys and `check: true`, which answers the templates that reach into the new margins (the built-in kinds and the newest version of each saved template for that roll, laid out with their sample values for each saved text style) without saving. The admin page shows that list and asks before approving, with a note that the built-in labels cannot be changed.
+- Checked in Docker Desktop with a made-up printer: the 57 × 32 mm test label sent to a queue that reaches no printer, made-up margins with 3 mm at the top named the three built-in labels, and the approval saved them. Nothing was printed.
+
 ## 0.14.2 - 2026-10-27
 
 - A roll reading decodes `chip`: the label length along the feed (bytes 40-41 of the ESC U answer) and the whole label's width across the head (42-43), in tenths of a millimetre, and the labels on a full roll (50-51). The owner read five known rolls (S0722520, S0722550, S0722540, S0722430, 2166659) with 0.14.1: all fit. S0722550 is a fold-over label; the chip gives the whole 27.9 mm, while it prints on a 19 mm face.

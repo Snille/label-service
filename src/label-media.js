@@ -32,8 +32,10 @@ export function customMedia(roll) {
   const media = preset(customMediaKey(roll.widthMm, roll.heightMm), roll.sku, roll.widthMm, roll.heightMm, points(roll.widthMm), points(roll.heightMm), {}, { wide: roll.widthMm > wideLabelMm });
   return { ...media, name: roll.name ? `${roll.name} · ${media.name}` : media.name, custom: true, status: roll.status, ...(roll.margins ? { margins: roll.margins } : {}) };
 }
-// Every roll the service knows: the built-in formats and the rolls saved in the settings.
-export const allMedia = config => [...labelMediaPresets, ...(config?.rolls || []).map(customMedia)];
+// Every roll the service knows: the built-in formats, with the margins measured on their test prints (config.measured),
+// and the rolls saved in the settings.
+export const allMedia = config => [...labelMediaPresets.map(p => config?.measured?.[p.key] ? { ...p, margins: config.measured[p.key].margins } : p),
+  ...(config?.rolls || []).map(customMedia)];
 
 // DYMO LabelWriter models. The 5xx models use the official LW5xx driver (raster2dymolw_v2); the 450 and 4XL use the
 // CUPS DYMO driver (printer-driver-dymo). Only the wide models take 4-inch labels; the PPDs of all five name the
