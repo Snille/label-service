@@ -179,6 +179,27 @@ test('an object that reaches outside the label is a problem, not a silent cut', 
   assert.match(layout.problems[1].message, /on the left side/);
 });
 
+test('a rotated object turns about its centre, and its turned corners must stay on the label', () => {
+  const media = labelMediaPresets.find(p => p.key === 'w72h154');
+  const definition = { id: 'turns', name: 'Turns', media: ['w72h154'], orientation: 'landscape', fields: {}, objects: [
+    { id: 'upright', type: 'text', x: 2, y: 10, w: 20, h: 5, text: 'Side', size: 8, rotate: -90 },
+    { id: 'tilted', type: 'rect', x: 30, y: 5, w: 10, h: 10, rotate: 15 },
+    { id: 'long', type: 'text', x: 2, y: 2, w: 50, h: 5, text: 'Too long when upright', size: 8, rotate: 90 },
+    { id: 'flat', type: 'line', x: 2, y: 22, w: 10, h: 0, rotate: 360 }] };
+  validateTemplate(structuredClone(definition));
+  const layout = layoutTemplate(definition, {}, { media, style: media.style, orientation: 'landscape' });
+  const pt = mm => mm * 72 / 25.4;
+  assert.deepEqual(layout.items[0].rotate, { angle: -90, cx: +pt(12).toFixed(3), cy: +pt(12.5).toFixed(3) });
+  assert.equal(layout.items[3].rotate, undefined);
+  // Upright, the 50 mm wide box is 50 mm tall on a 25 mm label; the others fit.
+  assert.deepEqual(layout.warnings, ['long']); assert.match(layout.problems[0].message, /top and bottom/);
+  const svg = layoutSvg(layout);
+  assert.match(svg, new RegExp(`<g transform="rotate\\(-90 ${+pt(12).toFixed(3)} ${+pt(12.5).toFixed(3)}\\)"><path aria-label="Side"`));
+  assert.match(svg, /<g transform="rotate\(15 [\d.]+ [\d.]+\)"><rect/);
+  const wrong = structuredClone(definition); wrong.objects[0].rotate = 400;
+  assert.throws(() => validateTemplate(wrong), /rotate is -360 to 360/);
+});
+
 test('object ids say whether they are badly formed or repeated', () => {
   const definition = { id: 'ids', name: 'Ids', media: ['*'], fields: {}, objects: [{ id: 'a', type: 'rect', x: 1, y: 1, w: 2, h: 2 }, { id: 'a', type: 'rect', x: 1, y: 1, w: 2, h: 2 }] };
   assert.throws(() => validateTemplate(structuredClone(definition)), /objects\[1\]\.id "a" is already used/);
@@ -209,6 +230,10 @@ test('rsvg-convert turns the page into a PDF of the exact label size and the pre
   }
   const png = await rsvgConvert(layoutSvg(labelLayout(testLabel)), 'png');
   assert.equal(png.readUInt32BE(16), 675); assert.equal(png.readUInt32BE(20), 375);
+  // A batch is one PDF with one page per label.
+  const pages = ['A', 'B', 'C'].map(title => pageSvg(labelLayout({ ...testLabel, title })));
+  const batch = (await rsvgConvert(pages, 'pdf')).toString('latin1');
+  assert.equal(batch.match(/\/Type\s*\/Page\b/g).length, 3);
 });
 
 test('SVG uploads become PNG pictures through rsvg-convert, without reading outside files', { skip: !rsvg && 'rsvg-convert is not installed' }, async () => {

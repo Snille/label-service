@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.10.0, live together with Label Studio 0.7.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token for batch printing (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.11.0, live together with Label Studio 0.8.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -98,19 +98,20 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `GET`, `PUT /api/v1/settings` | admin | `{revision, config}`: `serverUrl`, `defaultPrinter`, `batchLimit` and `printers`. |
 | `POST /api/v1/roll` | admin | `{revision, printer?}`. Reads the loaded roll once; needs an idle, empty queue. |
 
-Preview request: `{kind? | template?, version?, fields | test: true, check?, printer?, mediaKey?, orientation?: 'portrait'|'landscape', reference?, include?: ['png']}`.
+Preview request: `{kind? | template?, version?, fields | test: true | rows, check?, printer?, mediaKey?, orientation?: 'portrait'|'landscape', reference?, include?: ['png']}`.
 
 - `kind` is a built-in template: `box` (`title`, `description`, `location`), `location` (only `location`, printed large) or `lines` (`{lines: [{text, bold?, size?}]}`, 1-12 lines, 6-16 points, shrunk together until they fit; an empty `text` is a spacer).
 - `template` is a saved template id (the latest published version unless `version` is given), or, for designers and drafters, a whole unsaved definition.
 - `warnings` lists what stops printing, per object: `{object, message}`, for example `"recipient" needs 4 rows, but 3 fit at 7 pt`. `layout.lines` keeps the original row list (text, centre x, baseline y, size, bold, width) for clients that draw their own preview.
 - `include: ['png']` adds a 300 dpi PNG of the label (base64).
-- `check: true` answers the same without a token or a print document (`{check: true, ...}`), so a batch client can check every row before printing without filling the store of open previews (at most 100). Each row then gets a normal preview right before it prints.
+- `check: true` answers the same without a token or a print document (`{check: true, ...}`), so a batch client can check every row before printing without filling the store of open previews (at most 100). Each row then prints in a batch preview with `rows`.
+- `rows: [fields, ...]` (1 to `batchLimit`) makes one print document with one page per row and one token, so a batch prints as one job and the printer runs it in one go (the DYMO driver needs about 10 seconds between jobs). The answer has `labels`, `printable` and `warnings` with the `row` number (1 is the first); one row that does not fit stops the batch. The journal record of such a job has `labels`. No `layout`, `svg` or PNG; check rows one at a time with `check: true` for that.
 
 `orientation` sets the text direction for this one label; without it, the template's direction or the selected format's saved direction applies.
 
 ## Templates
 
-A template places objects on the readable label. Lengths are millimetres or percentages of the label side; each axis takes two of start, end and size (`x`/`right`/`w`, `y`/`bottom`/`h`). Text uses `{{field}}` placeholders.
+A template places objects on the readable label. Lengths are millimetres or percentages of the label side; each axis takes two of start, end and size (`x`/`right`/`w`, `y`/`bottom`/`h`). Any object may take `rotate`, degrees clockwise (-360 to 360) about the centre of its box; text fits inside the box before it is turned, and the turned corners must stay on the label. Text uses `{{field}}` placeholders.
 
 ```json
 {

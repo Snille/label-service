@@ -64,6 +64,25 @@ test('a check says whether a label fits without a token or a print document, and
   assert.equal(service.formats().batchLimit, 20);
 });
 
+test('a batch of rows becomes one print document, one token and one job', async t => {
+  const { store, state, service } = setup(t);
+  let pages; service.converter = async (svg, format) => { if (format === 'pdf') pages = Array.isArray(svg) ? svg.length : 1; return fakeConverter(svg, format); };
+  const rows = ['IVAR-A-H2-P1', 'IVAR-A-H2-P2', 'IVAR-A-H2-P3'].map(location => ({ location }));
+  const p = await preview(service, 'storagesystem', { kind: 'location', rows, reference: 'batch:1' });
+  assert.equal(p.labels, 3); assert.equal(p.printable, true); assert.equal(pages, 3); assert.equal(p.layout, undefined);
+  const job = await service.submit({ token: p.token, requestId: randomUUID() }, 'storagesystem');
+  assert.equal(job.labels, 3); assert.equal(job.state, 'submitted'); assert.equal(state.printCalls, 1); assert.equal(store.audit().ok, true);
+  // One row that does not fit stops the batch and is named by its number.
+  const crowded = await preview(service, 'storagesystem', { rows: [{ title: 'a', location: 'A' }, { title: 'b', description: 'long text '.repeat(60), location: 'B' }] });
+  assert.equal(crowded.printable, false); assert.deepEqual(crowded.warnings.map(w => [w.row, w.object]), [[2, 'description']]);
+  await assert.rejects(service.submit({ token: crowded.token, requestId: randomUUID() }, 'storagesystem'), /does not fit/);
+  await assert.rejects(preview(service, 'storagesystem', { kind: 'location', rows: [{ location: 'A' }, {}] }), /^Error: Row 2: /);
+  await assert.rejects(preview(service, 'storagesystem', { kind: 'location', rows: [] }), /1-50 labels/);
+  await assert.rejects(preview(service, 'storagesystem', { kind: 'location', rows: Array.from({ length: 51 }, () => ({ location: 'A' })) }), /1-50 labels/);
+  await assert.rejects(preview(service, 'storagesystem', { kind: 'location', rows, check: true }), /without fields, test, check or include/);
+  await assert.rejects(preview(service, 'storagesystem', { kind: 'location', rows, fields: {} }), /without fields/);
+});
+
 test('print requests are single-use, durably idempotent and owned by the client that previewed them', async t => {
   const { store, state, service } = setup(t), p = await preview(service, 'storagesystem', { kind: 'location', fields: { location: 'IVAR-A-H2-P1-A' }, reference: 'box:42' });
   assert.equal(p.printable, true); assert.match(p.svg, /^<svg/); assert.deepEqual(p.warnings, []); assert.equal(p.printer, 'dymo-5xl');

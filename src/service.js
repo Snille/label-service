@@ -242,7 +242,7 @@ export class PrintService {
 
   async preview(input, client) {
     client = who(client); object(input);
-    if (Object.keys(input).some(k => !['kind', 'template', 'version', 'test', 'check', 'fields', 'mediaKey', 'orientation', 'reference', 'printer', 'include'].includes(k))
+    if (Object.keys(input).some(k => !['kind', 'template', 'version', 'test', 'check', 'fields', 'rows', 'mediaKey', 'orientation', 'reference', 'printer', 'include'].includes(k))
       || (input.test !== undefined && typeof input.test !== 'boolean') || (input.check !== undefined && typeof input.check !== 'boolean')
       || (input.orientation !== undefined && !['portrait', 'landscape'].includes(input.orientation))
       || (input.include !== undefined && (!Array.isArray(input.include) || input.include.some(i => i !== 'png')))) {
@@ -253,35 +253,61 @@ export class PrintService {
     const media = labelMediaPresets.find(p => p.key === printer.mediaKey);
     // A client may state the format it expects; the loaded roll decides, so a mismatch is refused rather than printed on the wrong labels.
     if (input.mediaKey !== undefined && input.mediaKey !== printer.mediaKey) throw new InputError(`The selected label format is ${media.name}. Change the roll and format first.`, 409);
+    // A batch: rows of field values become one print document with one label per row, sent as one job (decision B8 as
+    // changed on 2026-10-27), because the DYMO driver needs a pause between jobs but prints the pages of one job in one run.
+    let rows;
+    if (input.rows !== undefined) {
+      if (input.fields !== undefined || input.test !== undefined || input.check !== undefined || input.include !== undefined || !Array.isArray(input.rows)) {
+        throw new InputError('A batch preview takes rows of fields, without fields, test, check or include.');
+      }
+      if (!input.rows.length || input.rows.length > config.batchLimit) throw new InputError(`A batch holds 1-${config.batchLimit} labels.`);
+      rows = input.rows.map((row, index) => object(row, `rows[${index}]`));
+    }
     const { definition, ref, builtIn } = this.resolve(input, client);
     if (!definition.media.includes('*') && !definition.media.includes(printer.mediaKey)) throw new InputError(`The template "${definition.name}" is not made for ${media.name}. Load a matching roll first.`, 409);
     let fields;
     if (input.test === true) {
       if (input.fields) throw new InputError('Test labels use fixed sample text.');
       fields = this.sampleFields(definition, media);
-    } else fields = object(input.fields, 'fields');
+    } else if (!rows) fields = object(input.fields, 'fields');
     // A client may choose the text direction for this label; otherwise the template's or the format's saved direction applies.
     const style = printer.styles[printer.mediaKey];
-    const layout = layoutTemplate(definition, fields, { media, style, orientation: input.orientation, picture: id => this.picture(id) });
+    const lay = values => layoutTemplate(definition, values, { media, style, orientation: input.orientation, picture: id => this.picture(id) });
+    const layouts = rows ? rows.map((row, index) => {
+      try { return lay(row); } catch (error) { if (error instanceof InputError) error.message = `Row ${index + 1}: ${error.message}`; throw error; }
+    }) : [lay(fields)];
+    const layout = layouts[0];
     // Pictures and codes print in the driver's graphics quality; a template may ask for a lighter or darker print.
     const driver = { DymoPrintQuality: layout.items.some(i => i.type === 'image' || i.type === 'barcode') ? 'Graphics' : 'Text',
       ...(definition.printDensity ? { DymoPrintDensity: definition.printDensity[0].toUpperCase() + definition.printDensity.slice(1) } : {}) };
     // Built-in and published templates print for every client; drafts and unsaved designs only from a designer key.
     const allowed = builtIn || ref.status === 'published' || client.role === 'designer';
-    const problems = [...layout.problems, ...(allowed ? [] : [{ object: 'template', message: 'Only published templates can be printed with this key. Publish the template first.' }])];
-    const printable = problems.length === 0, svg = layoutSvg(layout);
-    const png = input.include?.includes('png') ? (await this.converter(svg, 'png')).toString('base64') : undefined;
+    const denied = allowed ? [] : [{ object: 'template', message: 'Only published templates can be printed with this key. Publish the template first.' }];
     const kind = builtIn ? ref.id : 'template', template = builtIn ? undefined : { id: ref.id, version: ref.version };
-    const answer = { kind, ...(template ? { template: { ...template, status: ref.status } } : {}), printer: printer.id, fields, layout, driver, svg, ...(png ? { png } : {}), printable, warnings: problems };
-    // A check answers whether the label fits without a print document or a token, so a batch can check every row first
-    // without filling the preview store.
-    if (input.check === true) return { check: true, ...answer };
-    const document = printable ? await this.converter(pageSvg(layout), 'pdf') : null;
+    const head = { kind, ...(template ? { template: { ...template, status: ref.status } } : {}), printer: printer.id };
+    let answer, document = null;
+    if (rows) {
+      // Warnings name the row (1 is the first row sent); one row that does not fit stops the whole batch.
+      const problems = [...layouts.flatMap((l, index) => l.problems.map(p => ({ row: index + 1, ...p }))), ...denied];
+      const printable = problems.length === 0;
+      answer = { ...head, labels: rows.length, driver, printable, warnings: problems };
+      if (printable) document = await this.converter(layouts.map(pageSvg), 'pdf');
+    } else {
+      const problems = [...layout.problems, ...denied];
+      const printable = problems.length === 0, svg = layoutSvg(layout);
+      const png = input.include?.includes('png') ? (await this.converter(svg, 'png')).toString('base64') : undefined;
+      answer = { ...head, fields, layout, driver, svg, ...(png ? { png } : {}), printable, warnings: problems };
+      // A check answers whether the label fits without a print document or a token, so a batch can check every row first
+      // without filling the preview store.
+      if (input.check === true) return { check: true, ...answer };
+      if (printable) document = await this.converter(pageSvg(layout), 'pdf');
+    }
     const token = randomUUID(), now = Date.now();
     for (const [id, p] of this.previews) if (p.expires <= now) this.previews.delete(id);
     if (this.previews.size >= 100) throw new InputError('Too many label previews. Wait for an older preview to expire.', 429);
     const expires = now + 10 * 60 * 1000;
-    this.previews.set(token, { config, revision, printer: printer.id, kind, template, client: client.name, reference: input.reference, layout, driver, printable, document, expires });
+    this.previews.set(token, { config, revision, printer: printer.id, kind, template, client: client.name, reference: input.reference, layout, driver,
+      printable: answer.printable, document, labels: rows?.length || 1, expires });
     return { token, expiresAt: new Date(expires).toISOString(), ...answer };
   }
   assertPreview(preview) {
@@ -311,7 +337,8 @@ export class PrintService {
       await cups.validate(printer.mediaKey, `label-service ${client.name}`, documentFormat, preview.driver); this.assertPreview(preview);
       const claim = this.store.claimPrint({ id: input.requestId, tokenHash, documentHash: hash(preview.document), settingsRevision: preview.revision,
         serverUrl: preview.config.serverUrl, queue: printer.queue, printer: printer.id, mediaKey: printer.mediaKey, documentFormat, createdAt: new Date().toISOString(), state: 'submitting',
-        client: client.name, kind: preview.kind, ...(preview.template ? { template: preview.template } : {}), ...(preview.reference ? { reference: preview.reference } : {}) });
+        client: client.name, kind: preview.kind, ...(preview.template ? { template: preview.template } : {}), ...(preview.reference ? { reference: preview.reference } : {}),
+        ...(preview.labels > 1 ? { labels: preview.labels } : {}) });
       if (!claim.claimed) return claim.job;
       claimed = true; sent = true;
       const jobId = await cups.print(printer.mediaKey, `label-service ${client.name}`, preview.document, documentFormat, preview.driver);

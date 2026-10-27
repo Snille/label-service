@@ -21,8 +21,10 @@ const bars = item => (item.rects.length ? `<path aria-label="${escape(item.id)}"
 // A picture is already black and white in printer dots; it is drawn 1:1 without smoothing.
 const picture = item => item.href ? `<image aria-label="${escape(item.id)}" x="${item.x}" y="${item.y}" width="${item.w}" height="${item.h}" preserveAspectRatio="none" style="image-rendering:pixelated" xlink:href="${item.href}"/>` : '';
 
+// A rotated object is drawn in its own frame and turned about the centre of its box.
+const turned = (item, body) => item.rotate && body ? `<g transform="rotate(${item.rotate.angle} ${item.rotate.cx} ${item.rotate.cy})">${body}</g>` : body;
 function content(layout) {
-  return layout.items.map(item => item.type === 'text' ? rows(item) : item.type === 'barcode' ? bars(item) : item.type === 'image' ? picture(item) : shape(item)).join('');
+  return layout.items.map(item => turned(item, item.type === 'text' ? rows(item) : item.type === 'barcode' ? bars(item) : item.type === 'image' ? picture(item) : shape(item))).join('');
 }
 
 // Readable preview of a label layout. It shows the text as it reads, not turned onto the roll.

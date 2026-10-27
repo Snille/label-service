@@ -1,5 +1,12 @@
 # History
 
+## 0.11.0 - 2026-10-27
+
+- A preview takes `rows`, a list of field values (1 to `batchLimit`), and makes one PDF with one page per row and one token, so a batch prints as one CUPS job. The owner's paper test of 0.10 printed 5 labels as 5 jobs exactly 10.0 seconds apart (the pause the DYMO driver needs between jobs); DYMO Connect sends one job and the printer runs the labels in one go. Decision B8 changed accordingly: the duplicate guard covers the whole batch.
+- Warnings of a batch preview name the row; one row that does not fit stops the batch. The journal record of a batch job has `labels`.
+- rsvg-convert makes the multi-page PDF from page files in a private temporary folder, removed afterwards. The Docker build test checks a three-page PDF.
+- Objects take `rotate`: degrees clockwise about the centre of the object's box, drawn as an SVG rotation of the laid-out object. Text fits inside the unturned box. The check for objects outside the label uses the turned corners.
+
 ## 0.10.0 - 2026-10-27
 
 For batch printing in Label Studio (phase 3, decision B8: one row, one label, one job).

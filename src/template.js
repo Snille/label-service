@@ -81,11 +81,13 @@ export function validateTemplate(definition) {
     const name = `objects[${index}]`;
     object(item, name);
     if (!objectTypes.includes(item.type)) throw fail(`${name}.type is one of ${objectTypes.join(', ')}.`);
-    const common = ['id', 'type', 'x', 'y', 'w', 'h', 'right', 'bottom'];
+    const common = ['id', 'type', 'x', 'y', 'w', 'h', 'right', 'bottom', 'rotate'];
     if (item.id !== undefined && !fieldName.test(item.id)) throw fail(`${name}.id must start with a letter and use letters, digits or _ (no hyphens).`);
     if (item.id !== undefined && ids.has(item.id)) throw fail(`${name}.id "${item.id}" is already used by another object.`);
     if (item.id) ids.add(item.id);
     geometry(item, name);
+    // Degrees clockwise about the centre of the object's box.
+    if (item.rotate !== undefined && !number(item.rotate, -360, 360)) throw fail(`${name}.rotate is -360 to 360 degrees.`);
     if (item.type === 'text') {
       only(item, [...common, 'text', 'font', 'size', 'minSize', 'bold', 'italic', 'wrap', 'breakHyphens', 'align', 'valign', 'lineHeight', 'color'], name);
       if (!short(item.text, 4000)) throw fail(`${name}.text is required (at most 4000 characters).`);

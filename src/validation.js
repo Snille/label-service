@@ -81,7 +81,8 @@ export function validatePrintJob(record) {
     || (record.template !== undefined && (typeof record.template?.id !== 'string' || !Number.isInteger(record.template.version)))
     || (record.printer !== undefined && !printerId.test(record.printer))
     || (record.documentFormat !== undefined && !['application/postscript', 'application/pdf'].includes(record.documentFormat))
-    || (record.reference !== undefined && (typeof record.reference !== 'string' || record.reference.length > 200))) throw new InputError('Invalid print job record.');
+    || (record.reference !== undefined && (typeof record.reference !== 'string' || record.reference.length > 200))
+    || (record.labels !== undefined && (!Number.isInteger(record.labels) || record.labels < 2 || record.labels > 500))) throw new InputError('Invalid print job record.');
   serverUrl(record.serverUrl);
   if (!queueName.test(record.queue || '') || !labelMediaPresets.some(p => p.key === record.mediaKey)) throw new InputError('Invalid print job record.');
   return record;

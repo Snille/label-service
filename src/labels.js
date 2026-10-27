@@ -212,15 +212,30 @@ export function labelPage(media, orientation) {
     pageWidthPt: media.widthPt, pageHeightPt: media.heightPt, rotated, orientation: rotated ? orientation : naturalOrientation(media) };
 }
 
+// A rotated object turns about the centre of its box: rotate is degrees clockwise, as in SVG.
+function turn(item, canvas) {
+  if (!item.rotate || !(item.rotate % 360)) return null;
+  const { x, y, w, h } = box(item, canvas);
+  return { angle: item.rotate, cx: round(x + w / 2), cy: round(y + h / 2) };
+}
+// The corners of an object as drawn: a line's two ends, or the four corners of a box, turned with the object.
+function corners(item, canvas) {
+  const { x, y, w, h } = box(item, canvas), t = turn(item, canvas);
+  const points = item.type === 'line' ? [[x, y], [x + w, y + h]] : [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+  if (!t) return points;
+  const a = t.angle * Math.PI / 180, cos = Math.cos(a), sin = Math.sin(a);
+  return points.map(([px, py]) => [t.cx + (px - t.cx) * cos - (py - t.cy) * sin, t.cy + (px - t.cx) * sin + (py - t.cy) * cos]);
+}
+
 // An object that reaches past the readable canvas is clipped on paper, so it is a problem rather than a silent cut.
-// A line's w and h may be negative (it runs from x, y to x + w, y + h).
+// A line's w and h may be negative (it runs from x, y to x + w, y + h); a rotated object counts with its turned corners.
 function outside(item, id, canvas) {
-  const { x, y, w, h } = box(item, canvas), edge = 0.01;
+  const points = corners(item, canvas), xs = points.map(p => p[0]), ys = points.map(p => p[1]), edge = 0.01;
   const sides = [];
-  if (Math.min(x, x + w) < -edge) sides.push('left');
-  if (Math.max(x, x + w) > canvas.widthPt + edge) sides.push('right');
-  if (Math.min(y, y + h) < -edge) sides.push('top');
-  if (Math.max(y, y + h) > canvas.heightPt + edge) sides.push('bottom');
+  if (Math.min(...xs) < -edge) sides.push('left');
+  if (Math.max(...xs) > canvas.widthPt + edge) sides.push('right');
+  if (Math.min(...ys) < -edge) sides.push('top');
+  if (Math.max(...ys) > canvas.heightPt + edge) sides.push('bottom');
   if (sides.length) canvas.problems.push({ object: id, message: `"${id}" reaches outside the label on the ${sides.join(' and ')} side. The label is ${mm(canvas.widthPt)} × ${mm(canvas.heightPt)} mm.` });
 }
 
@@ -236,6 +251,7 @@ export function layoutTemplate(definition, input, { media, style, orientation, n
       : item.type === 'stack' ? layoutStack(item, id, values, style, layout, layout)
       : item.type === 'barcode' ? layoutBarcode(item, id, values, style, layout, layout)
       : item.type === 'date' ? date() : item.type === 'image' ? layoutImage(item, id, layout, layout, picture) : layoutShape(item, id, layout));
+    const t = turn(item, layout); if (t) layout.items.at(-1).rotate = t;
     outside(item, id, layout);
   }
   layout.warnings = [...new Set(layout.problems.map(p => p.object))];
