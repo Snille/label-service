@@ -45,6 +45,8 @@ The environment creates the first printer (`PRINTER_MODEL`, `CUPS_QUEUE`, `PRINT
 
 ## Rolls
 
+Step by step: [adding a new roll](docs/new-roll.md) ([på svenska](docs/new-roll.sv.md)).
+
 The five formats below are built in. The admin page adds more (decision B11). Reading a roll that is not known yet shows Add this roll, which fills the form from the roll's chip: its article number and size (bytes 40-43 of the ESC U answer, checked on five rolls). The chip gives the whole label, so check the size with a ruler: a fold-over label such as S0722550 reports 27.9 mm across but prints on a 19 mm face. To add a roll by hand, give the article number the roll reports (`S0722540` or seven digits), an optional name, and the label size in millimetres, the width across the print head first. An added roll prints through the PPD's custom page size (`custom_40x30mm_40x30mm`), as the shipping labels do; one wider than 62 mm is offered only to the wide models.
 
 A new roll is `testing` until its test print is approved (decision B12). While it is testing, only the admin can print its test label: a frame of straight lines, each with its outer edge 5 mm inside its edge of the label (less on very small rolls; the page names it).
