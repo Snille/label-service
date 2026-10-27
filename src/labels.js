@@ -212,6 +212,18 @@ export function labelPage(media, orientation) {
     pageWidthPt: media.widthPt, pageHeightPt: media.heightPt, rotated, orientation: rotated ? orientation : naturalOrientation(media) };
 }
 
+// An object that reaches past the readable canvas is clipped on paper, so it is a problem rather than a silent cut.
+// A line's w and h may be negative (it runs from x, y to x + w, y + h).
+function outside(item, id, canvas) {
+  const { x, y, w, h } = box(item, canvas), edge = 0.01;
+  const sides = [];
+  if (Math.min(x, x + w) < -edge) sides.push('left');
+  if (Math.max(x, x + w) > canvas.widthPt + edge) sides.push('right');
+  if (Math.min(y, y + h) < -edge) sides.push('top');
+  if (Math.max(y, y + h) > canvas.heightPt + edge) sides.push('bottom');
+  if (sides.length) canvas.problems.push({ object: id, message: `"${id}" reaches outside the label on the ${sides.join(' and ')} side. The label is ${mm(canvas.widthPt)} × ${mm(canvas.heightPt)} mm.` });
+}
+
 // picture(id) returns a decoded uploaded picture ({width, height, rgba}) or null.
 export function layoutTemplate(definition, input, { media, style, orientation, now = new Date(), picture }) {
   const values = validateFields(definition, input);
@@ -224,6 +236,7 @@ export function layoutTemplate(definition, input, { media, style, orientation, n
       : item.type === 'stack' ? layoutStack(item, id, values, style, layout, layout)
       : item.type === 'barcode' ? layoutBarcode(item, id, values, style, layout, layout)
       : item.type === 'date' ? date() : item.type === 'image' ? layoutImage(item, id, layout, layout, picture) : layoutShape(item, id, layout));
+    outside(item, id, layout);
   }
   layout.warnings = [...new Set(layout.problems.map(p => p.object))];
   return layout;

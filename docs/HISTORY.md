@@ -1,5 +1,10 @@
 # History
 
+## 0.9.2 - 2026-10-27
+
+- An object that reaches outside the readable canvas is now a problem for that object ("reaches outside the label on the right side"), so the template does not print. Before, it was cut on paper with no warning; the first MCP design test found it with a text box 16 mm past the right edge.
+- A bad object `id` and a repeated one now give separate messages; the old one said "must be unique" for an id with a hyphen.
+
 ## 0.9.1 - 2026-10-26
 
 - Dithered pictures default to threshold 140 and lighten 15, the values that printed best in the owner's paper tests on the 5XL with graphics quality (40 had become too light once the driver printed in graphics quality). Threshold pictures keep 128 and 0. Templates with their own values are unchanged.

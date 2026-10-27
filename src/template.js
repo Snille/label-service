@@ -82,7 +82,8 @@ export function validateTemplate(definition) {
     object(item, name);
     if (!objectTypes.includes(item.type)) throw fail(`${name}.type is one of ${objectTypes.join(', ')}.`);
     const common = ['id', 'type', 'x', 'y', 'w', 'h', 'right', 'bottom'];
-    if (item.id !== undefined && (!fieldName.test(item.id) || ids.has(item.id))) throw fail(`${name}.id must be unique, start with a letter and use letters, digits or _.`);
+    if (item.id !== undefined && !fieldName.test(item.id)) throw fail(`${name}.id must start with a letter and use letters, digits or _ (no hyphens).`);
+    if (item.id !== undefined && ids.has(item.id)) throw fail(`${name}.id "${item.id}" is already used by another object.`);
     if (item.id) ids.add(item.id);
     geometry(item, name);
     if (item.type === 'text') {

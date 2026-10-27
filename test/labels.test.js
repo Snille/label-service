@@ -135,7 +135,7 @@ test('a picture fills its box in whole dots, keeps its proportions and names a m
   const picture = { width: 200, height: 100, rgba: Buffer.alloc(200 * 100 * 4, 0) }; // black, opaque
   for (let i = 3; i < picture.rgba.length; i += 4) picture.rgba[i] = 255;
   const definition = { id: 'logo', name: 'Logo', media: ['*'], fields: {}, objects: [
-    { id: 'logo', type: 'image', x: 2, y: 2, w: 30, h: 30, asset: 'aaaaaaaaaaaa' },
+    { id: 'logo', type: 'image', x: 2, y: 2, w: 30, h: 28, asset: 'aaaaaaaaaaaa' },
     { id: 'wide', type: 'image', x: 2, y: 2, w: 30, h: 10, asset: 'aaaaaaaaaaaa', fit: 'stretch', mode: 'dither', threshold: 100 },
     { id: 'gone', type: 'image', x: 40, y: 2, w: 10, h: 10, asset: 'bbbbbbbbbbbb' }] };
   validateTemplate(structuredClone(definition));
@@ -143,7 +143,7 @@ test('a picture fills its box in whole dots, keeps its proportions and names a m
   const [logo, wide] = layout.items;
   // 30 mm is 354 dots wide; a 2:1 picture keeps its proportions and sits in the middle of the box.
   assert.deepEqual([Math.round(logo.w / dot), Math.round(logo.h / dot)], [354, 177]);
-  assert.ok(Math.abs(logo.y + logo.h / 2 - (2 + 15) * 72 / 25.4) < dot);
+  assert.ok(Math.abs(logo.y + logo.h / 2 - (2 + 14) * 72 / 25.4) < dot);
   assert.deepEqual([Math.round(wide.w / dot), Math.round(wide.h / dot)], [354, 118]);
   assert.match(logo.href, /^data:image\/png;base64,/);
   assert.deepEqual(layout.problems.map(p => p.object), ['gone']); assert.match(layout.problems[0].message, /does not exist/);
@@ -163,6 +163,27 @@ test('a date object prints the preview time in its format, with text before and 
   assert.equal(formatDate(new Date(2026, 11, 31, 23, 59)), '2026-12-31');
   const wrong = structuredClone(definition); wrong.objects[0].format = 'a\nb';
   assert.throws(() => validateTemplate(wrong), /format/);
+});
+
+test('an object that reaches outside the label is a problem, not a silent cut', () => {
+  const media = labelMediaPresets.find(p => p.key === 'w72h154');
+  const definition = { id: 'edges', name: 'Edges', media: ['w72h154'], orientation: 'landscape', fields: {}, objects: [
+    { id: 'inside', type: 'text', x: 2, y: 2, w: 50, h: 5, text: 'In', size: 8 },
+    { id: 'wide', type: 'text', x: 40, y: 2, w: 30, h: 5, text: 'Out', size: 8 },
+    { id: 'back', type: 'line', x: 10, y: 20, w: -12, h: 0 },
+    { id: 'edge', type: 'rect', right: 0, bottom: 0, w: 10, h: 10 }] };
+  validateTemplate(structuredClone(definition));
+  const layout = layoutTemplate(definition, {}, { media, style: media.style, orientation: 'landscape' });
+  assert.deepEqual(layout.warnings, ['wide', 'back']);
+  assert.match(layout.problems[0].message, /"wide" reaches outside the label on the right side\. The label is 54\.3 × 25\.4 mm\./);
+  assert.match(layout.problems[1].message, /on the left side/);
+});
+
+test('object ids say whether they are badly formed or repeated', () => {
+  const definition = { id: 'ids', name: 'Ids', media: ['*'], fields: {}, objects: [{ id: 'a', type: 'rect', x: 1, y: 1, w: 2, h: 2 }, { id: 'a', type: 'rect', x: 1, y: 1, w: 2, h: 2 }] };
+  assert.throws(() => validateTemplate(structuredClone(definition)), /objects\[1\]\.id "a" is already used/);
+  definition.objects[1].id = 'too-wide';
+  assert.throws(() => validateTemplate(structuredClone(definition)), /objects\[1\]\.id must start with a letter and use letters, digits or _ \(no hyphens\)/);
 });
 
 test('an empty line between paragraphs stays as an empty row; leading and trailing ones are dropped', () => {
