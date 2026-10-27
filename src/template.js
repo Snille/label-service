@@ -2,7 +2,7 @@
 // label and fills their text from named fields ({{name}}). The three original label kinds are built-in templates.
 import { InputError, object } from './validation.js';
 import { labelMediaPresets, labelSizeKeys, labelOrientations, naturalOrientation } from './label-media.js';
-import { fontFamilies } from './fonts.js';
+import { fontFamilies, styleOf } from './fonts.js';
 
 export const templateId = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const fieldName = /^[a-zA-Z][a-zA-Z0-9_]{0,39}$/;
@@ -43,9 +43,13 @@ function size(value, name, { optional = true } = {}) {
 }
 function font(item, name) {
   if (item.font === undefined) return;
-  const family = fontFamilies.find(f => f.family === item.font);
-  if (!family) throw fail(`${name}.font must be one of ${fontFamilies.map(f => f.family).join(', ')}.`);
-  if (item.italic && !family.italic) throw fail(`${item.font} has no italic style.`);
+  const families = fontFamilies(), family = families.find(f => f.family === item.font);
+  if (!family) throw fail(`${name}.font must be one of ${families.map(f => f.family).join(', ')}.`);
+  if (item.italic && !family.italic && !family.boldItalic) throw fail(`${item.font} has no italic style.`);
+  // An uploaded family may lack a style; stack lines choose bold per line, so a stack needs both.
+  const style = styleOf(Boolean(item.bold), Boolean(item.italic));
+  if (!family[style]) throw fail(`${item.font} has no ${{ regular: 'regular', bold: 'bold', italic: 'italic', boldItalic: 'bold italic' }[style]} style. Upload it or choose another style.`);
+  if (item.type === 'stack' && !(family.regular && family.bold)) throw fail(`Free lines in ${item.font} need its regular and bold styles.`);
 }
 const placeholders = text => [...text.matchAll(/\{\{\s*([^}]*?)\s*\}\}/g)].map(m => m[1]);
 

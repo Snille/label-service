@@ -28,7 +28,14 @@ CREATE TABLE assets (
 ) STRICT;
 PRAGMA user_version = 3;
 `;
-const schemaVersion = 3;
+// Version 4 adds uploaded fonts: the record (family, style, who uploaded it) and the font file as uploaded.
+const fontsSchema = `
+CREATE TABLE fonts (
+  id TEXT PRIMARY KEY NOT NULL, record TEXT NOT NULL CHECK(json_valid(record) AND json_extract(record, '$.id') = id), data BLOB NOT NULL
+) STRICT;
+PRAGMA user_version = 4;
+`;
+const schemaVersion = 4;
 
 // Settings saved before version 0.5 described one printer at the top level; they become the default printer.
 export function migratePrinting(saved) {
@@ -53,6 +60,7 @@ export class Store {
         if (!version) this.transaction(() => this.db.exec(schema));
         if (version < 2) this.transaction(() => this.db.exec(templatesSchema));
         if (version < 3) this.transaction(() => this.db.exec(assetsSchema));
+        if (version < 4) this.transaction(() => this.db.exec(fontsSchema));
       }
     } catch (error) { this.close(); throw error; }
   }
@@ -93,6 +101,12 @@ export class Store {
   assetPng(id) { const row = this.db.prepare('SELECT png FROM assets WHERE id=?').get(id); return row ? Buffer.from(row.png) : null; }
   addAsset(record, png) { this.db.prepare('INSERT INTO assets VALUES (?, ?, ?)').run(record.id, JSON.stringify(record), png); return record; }
   deleteAsset(id) { return this.db.prepare('DELETE FROM assets WHERE id=?').run(id).changes; }
+  fonts() { return this.db.prepare("SELECT record FROM fonts ORDER BY json_extract(record, '$.family'), json_extract(record, '$.style')").all().map(row => JSON.parse(row.record)); }
+  font(id) { const row = this.db.prepare('SELECT record FROM fonts WHERE id=?').get(id); return row ? JSON.parse(row.record) : null; }
+  fontData(id) { const row = this.db.prepare('SELECT data FROM fonts WHERE id=?').get(id); return row ? Buffer.from(row.data) : null; }
+  fontFiles() { return this.db.prepare('SELECT record, data FROM fonts').all().map(row => ({ ...JSON.parse(row.record), data: Buffer.from(row.data) })); }
+  addFont(record, data) { this.db.prepare('INSERT INTO fonts VALUES (?, ?, ?)').run(record.id, JSON.stringify(record), data); return record; }
+  deleteFont(id) { return this.db.prepare('DELETE FROM fonts WHERE id=?').run(id).changes; }
   allTemplateVersions() { return this.db.prepare('SELECT record FROM templates').all().map(row => JSON.parse(row.record)); }
   deleteTemplate(id) { return this.db.prepare('DELETE FROM templates WHERE id=?').run(id).changes; }
   updateTemplateVersion(id, version, changes) {

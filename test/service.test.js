@@ -273,8 +273,8 @@ test('a version 1 database gains the templates and pictures tables and keeps its
   const dir = mkdtempSync(join(tmpdir(), 'label-service-'));
   try {
     const path = join(dir, 'old.sqlite'), old = new Store(path);
-    old.db.exec('DROP TABLE templates; DROP TABLE assets; PRAGMA user_version = 1;'); old.close();
+    old.db.exec('DROP TABLE templates; DROP TABLE assets; DROP TABLE fonts; PRAGMA user_version = 1;'); old.close();
     const store = new Store(path);
-    try { assert.equal(store.audit().schemaVersion, 3); assert.deepEqual(store.templateIds(), []); assert.deepEqual(store.assets(), []); } finally { store.close(); }
+    try { assert.equal(store.audit().schemaVersion, 4); assert.deepEqual(store.templateIds(), []); assert.deepEqual(store.assets(), []); assert.deepEqual(store.fonts(), []); } finally { store.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

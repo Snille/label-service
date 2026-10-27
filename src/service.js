@@ -7,7 +7,8 @@ import { printerModels, printerModel, mediaForModel, allMedia, customMediaKey } 
 import { builtInTemplates, validateTemplate, templateId, assetId, calibrationTemplate } from './template.js';
 import { decodePng, isPng, encodeRgba } from './png.js';
 import { isPdf, pdfPage } from './pdf.js';
-import { fontFamilies } from './fonts.js';
+import { fontFamilies, setUploadedFonts, readFont } from './fonts.js';
+import { isZip, readZip } from './zip.js';
 import { readDymoRoll } from './dymo-roll.js';
 import { layoutSvg, pageSvg } from './svg.js';
 import { rsvgConvert } from './convert.js';
@@ -15,6 +16,7 @@ import { rsvgConvert } from './convert.js';
 const hash = input => createHash('sha256').update(input).digest('hex');
 export const revisionOf = config => hash(JSON.stringify(config));
 const maxPictureBytes = 2 * 1024 * 1024;
+const maxFontBytes = 8 * 1024 * 1024;
 // The pixel size of a baseline or progressive JPEG, from its first start-of-frame marker.
 function jpegSize(bytes) {
   for (let at = 2; at + 9 < bytes.length;) {
@@ -47,6 +49,7 @@ export class PrintService {
     this.store = store; this.defaults = defaults; this.queuesFile = queuesFile; this.printerFactory = printerFactory; this.rollReader = rollReader; this.converter = converter; this.pdfReader = pdfReader;
     this.settleMs = settleMs; this.queueWaitMs = queueWaitMs;
     this.previews = new Map(); this.pictures = new Map(); this.busy = new Set(); this.lastRollCheck = new Map(); this.lastPrint = new Map();
+    setUploadedFonts(this.store.fontFiles());
   }
   // Waits until the printer has rested since its last job and its CUPS queue is idle and empty, then returns the queue status.
   async settle(cups, printer) {
@@ -80,14 +83,14 @@ export class PrintService {
     const config = this.config(), printer = this.printerConfig(config);
     const media = allMedia(config);
     return { config, revision: revisionOf(config), media: media.find(p => p.key === printer.mediaKey), mediaPresets: media,
-      models: printerModels.map(m => ({ ...m, media: mediaForModel(m.key, media).map(p => p.key) })), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies,
+      models: printerModels.map(m => ({ ...m, media: mediaForModel(m.key, media).map(p => p.key) })), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies(),
       queuesFile: Boolean(this.queuesFile) };
   }
   formats(id) {
     const config = this.config(), printer = this.printerConfig(config, id);
     // Clients see the approved rolls; the loaded roll is named even while it is testing, so they can say why nothing prints.
     return { printer: { id: printer.id, name: printer.name, model: printer.model }, mediaKey: printer.mediaKey, media: allMedia(config).find(p => p.key === printer.mediaKey),
-      style: printer.styles[printer.mediaKey], mediaPresets: mediaForModel(printer.model, approvedMedia(config)), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies, batchLimit: config.batchLimit,
+      style: printer.styles[printer.mediaKey], mediaPresets: mediaForModel(printer.model, approvedMedia(config)), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies(), batchLimit: config.batchLimit,
       printers: config.printers.map(p => ({ id: p.id, name: p.name, model: p.model, enabled: p.enabled, mediaKey: p.mediaKey, default: p.id === config.defaultPrinter })) };
   }
   assertRevision(revision) { if (revision !== this.revision()) throw new InputError('Print settings changed. Create a new preview before printing.', 409); }
@@ -277,6 +280,67 @@ export class PrintService {
       return { id, deleted: this.store.deleteAsset(id) };
     });
   }
+  // Fonts: a TrueType, OpenType or WOFF file, or a zip file with several. Each file is one style of a family (regular,
+  // bold, italic, bold italic) by its own names and style bits. A zip adds every font it holds and names the files it
+  // skipped; a style that is already there is skipped, so delete it first to replace it.
+  uploadFont(input, client) {
+    client = who(client); object(input);
+    if (client.role !== 'designer') throw new InputError('Uploading fonts requires a designer key.', 403);
+    if (Object.keys(input).some(k => !['name', 'data'].includes(k)) || typeof input.data !== 'string') throw new InputError('Send { name, data } with the font or zip file as base64.');
+    const name = String(input.name ?? 'font').trim().slice(0, 120) || 'font', bytes = Buffer.from(input.data, 'base64');
+    if (!bytes.length) throw new InputError('The file is empty.');
+    if (bytes.length > maxFontBytes) throw new InputError('The file is larger than 8 MB.', 413);
+    const fontFile = n => /\.(ttf|otf|woff)$/i.test(n) && !n.split('/').some(part => part.startsWith('.') || part === '__MACOSX');
+    const files = isZip(bytes) ? readZip(bytes, { want: fontFile }).map(e => ({ name: e.name.split('/').at(-1), data: e.data })) : [{ name, data: bytes }];
+    if (!files.length) throw new InputError('The zip file holds no .ttf, .otf or .woff font.', 415);
+    return this.store.transaction(() => {
+      const added = [], skipped = [];
+      for (const file of files) {
+        if (file.data.length > maxFontBytes) { skipped.push({ name: file.name, reason: 'larger than 8 MB' }); continue; }
+        let font;
+        try { font = readFont(file.data); } catch (error) {
+          if (!(error instanceof InputError) || files.length === 1) throw error;
+          skipped.push({ name: file.name, reason: error.message }); continue;
+        }
+        const taken = [...this.store.fonts(), ...added].find(f => f.family.toLowerCase() === font.family.toLowerCase() && (f.style === font.style || f.family !== font.family));
+        if (taken) {
+          const reason = taken.family !== font.family ? `the family ${taken.family} is spelled differently` : `${font.family} ${font.subfamily || font.style} is uploaded already; delete it first to replace it`;
+          if (files.length === 1) throw new InputError(`${file.name}: ${reason}.`, 409);
+          skipped.push({ name: file.name, reason }); continue;
+        }
+        const record = { id: randomBytes(6).toString('hex'), name: file.name.slice(0, 120), family: font.family, style: font.style, subfamily: font.subfamily, format: font.format,
+          glyphs: font.glyphs, bytes: file.data.length, ...(font.restricted ? { restricted: true } : {}), createdAt: new Date().toISOString(), createdBy: client.name };
+        this.store.addFont(record, file.data); added.push(record);
+      }
+      setUploadedFonts(this.store.fontFiles());
+      return { fonts: added, skipped };
+    });
+  }
+  fonts(client) {
+    if (!canDraft(who(client))) throw new InputError('This operation requires a designer key.', 403);
+    return { fonts: this.store.fonts() };
+  }
+  fontContent(id, client) {
+    if (!canDraft(who(client))) throw new InputError('This operation requires a designer key.', 403);
+    const record = assetId.test(id) ? this.store.font(id) : null;
+    if (!record) throw new InputError('Font not found.', 404);
+    return { record, data: this.store.fontData(id) };
+  }
+  // A font that a saved template uses (any version, any status) stays, so no template loses its font.
+  deleteFont(id, client) {
+    client = who(client);
+    if (client.role !== 'designer') throw new InputError('Deleting fonts requires a designer key.', 403);
+    return this.store.transaction(() => {
+      const record = assetId.test(id) ? this.store.font(id) : null;
+      if (!record) throw new InputError('Font not found.', 404);
+      const uses = o => o.font === record.family && (o.type === 'stack' ? ['regular', 'bold'].includes(record.style) : ['regular', 'bold', 'italic', 'boldItalic'][(o.bold ? 1 : 0) + (o.italic ? 2 : 0)] === record.style);
+      const users = [...new Set(this.store.allTemplateVersions().filter(t => t.definition.objects.some(uses)).map(t => t.id))];
+      if (users.length) throw new InputError(`${record.family} ${record.subfamily || record.style} is used by ${users.join(', ')}. Change the font in those templates first.`, 409);
+      const deleted = this.store.deleteFont(id); setUploadedFonts(this.store.fontFiles());
+      return { id, deleted };
+    });
+  }
+
   // Decoded pictures for the layout, kept for the most recent ones.
   picture(id) {
     if (this.pictures.has(id)) return this.pictures.get(id);

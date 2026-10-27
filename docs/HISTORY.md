@@ -1,5 +1,14 @@
 # History
 
+## 0.14.0 - 2026-10-27
+
+Phase 3: uploaded fonts. Schema 4: back up the database before updating.
+
+- `POST /api/v1/fonts` (designers) takes a TrueType, OpenType or WOFF file, or a zip file with several, at most 8 MB. opentype.js reads each font; its family and style come from name IDs 1 and 2 and the style bits (fsSelection, macStyle), so a family has at most regular, bold, italic and bold italic. WOFF2, damaged files, families named like a built-in one, names with quotes and repeated styles are refused; in a zip they are skipped and named. An own zip reader (stored and deflated entries through node:zlib, sizes capped first) skips folders such as `__MACOSX`.
+- Fonts are stored in a new table `fonts` (schema 4) with their file. `GET /api/v1/fonts`, `GET /api/v1/fonts/<id>/content` and `DELETE /api/v1/fonts/<id>`; a font that any saved template version uses in its style cannot be deleted.
+- Uploaded fonts are loaded at start and after each change, measured and drawn as outlines like the shipped ones, and listed in `/formats` with their styles and file ids. Template validation names a style a family lacks; free lines need regular and bold.
+- Tests make their own fonts with opentype.js and their own zip files.
+
 ## 0.13.0 - 2026-10-27
 
 Phase 3: rolls and printers from the admin page (decisions B11 and B12).

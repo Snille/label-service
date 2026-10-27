@@ -105,6 +105,16 @@ export function createApp({ store, env = process.env, service } = {}) {
         return res.end(png);
       }
       if (assetMatch && !assetMatch[2] && method === 'DELETE') return json(service.deleteAsset(assetMatch[1], client));
+      // Fonts: an 8 MB font or zip file is about 10.7 MB as base64 in JSON.
+      const fontMatch = path.match(/^\/api\/v1\/fonts\/([a-f0-9]{12})(\/content)?$/);
+      if (path === '/api/v1/fonts' && method === 'GET') return json(service.fonts(client));
+      if (path === '/api/v1/fonts' && method === 'POST') return json(service.uploadFont(await body(req, 11 * 1024 * 1024), client), 201);
+      if (fontMatch?.[2] && method === 'GET') {
+        const { record, data } = service.fontContent(fontMatch[1], client);
+        res.writeHead(200, { 'content-type': { ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff' }[record.format], 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' });
+        return res.end(data);
+      }
+      if (fontMatch && !fontMatch[2] && method === 'DELETE') return json(service.deleteFont(fontMatch[1], client));
       if (path === '/api/v1/status' && method === 'GET') return json(await service.status(printer));
       if (path === '/api/v1/previews' && method === 'POST') return json(await service.preview(await body(req), client), 201);
       if (path === '/api/v1/jobs' && method === 'POST') return json(await service.submit(await body(req), client), 201);

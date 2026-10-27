@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.13.0. Live: 0.12.0 with Label Studio 0.10.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.14.0. Live: 0.12.0 with Label Studio 0.10.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -20,6 +20,8 @@ CUPS sends jobs straight to the printer (`socket://PRINTER_HOST:9100`, or `PRINT
 ## Rendering
 
 A label is one SVG drawing. The layout engine measures text with the real glyph metrics of the shipped fonts (`fonts/`, open licences) and draws it as outlines, so the preview, the PNG and the printed page have exactly the same shapes. The same drawing becomes the PDF that CUPS prints; a chosen text direction turns it a quarter turn onto the label. Fonts: Liberation Sans (regular, bold, italic, bold italic), Liberation Serif, Liberation Mono and DejaVu Sans Condensed (regular and bold). A character that a font lacks is refused rather than printed as a box.
+
+Designers upload more fonts (`POST /api/v1/fonts`): a TrueType, OpenType or WOFF file, or a zip file with several, at most 8 MB. Each file is one style of a family, read from the font's own names (name IDs 1 and 2, as programs list regular, bold, italic and bold italic) and style bits; a zip adds every font it holds and names the files it skipped. WOFF2 is refused. A family may not take the name of a built-in one, and a style that is there already is refused, so delete it first to replace it. Fonts are kept in the database (schema 4) and are measured and drawn like the shipped ones. A font that a saved template uses cannot be deleted. Upload only fonts you may use; the record marks a font whose maker allows no embedding (`restricted`).
 
 Barcodes (Code 128, EAN-13) and 2D codes (QR, Data Matrix) are encoded with `bwip-js` and drawn by the layout as rectangles in whole printer dots (300 dpi): linear bars are at least two dots wide, 2D modules at least three, so codes print sharp. A box too small for that is a fit problem, not a blurred code.
 
@@ -88,7 +90,7 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | Method and path | Who | Purpose |
 | --- | --- | --- |
 | `GET /healthz` | anyone | Liveness and version. |
-| `GET /api/v1/formats[?printer=]` | client | The printer's selected format (the loaded roll), its text style, the formats its model supports, the printers, the fonts and `batchLimit` (most labels a client should send in one batch). |
+| `GET /api/v1/formats[?printer=]` | client | The printer's selected format (the loaded roll), its text style, the formats its model supports, the printers, the font families with their styles (`regular`, `bold`, `italic`, `boldItalic`; uploaded ones also `files`, the font id of each style) and `batchLimit` (most labels a client should send in one batch). |
 | `GET /api/v1/status[?printer=]` | client | CUPS queue state from IPP attributes. Never contacts the printer. |
 | `GET /api/v1/templates` | client | Built-in kinds and saved templates (published ones; designers and drafters also see the latest draft, `archived` when every version is archived and `everPublished`). |
 | `GET /api/v1/templates/<id>[?version=n]` | client | One template with its definition. Plain clients see published versions only. |
@@ -98,6 +100,9 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `DELETE /api/v1/templates/<id>` | designer | Delete every version of a template that was never published (409 otherwise: archive it instead). |
 | `GET /api/v1/assets`, `POST /api/v1/assets` | designer, drafter | List pictures; upload `{name, data, page?, crop?}` with the picture as base64 → `{id, name, type, width, height, bytes, createdAt, createdBy}`. PNG, JPEG, SVG, or one page of a PDF (`page`, 1 by default; drawn by poppler at up to 300 dpi, the record adds `page` and `pages`). `crop` `{x, y, w, h}`, shares from 0 to 1, keeps part of any picture. At most 2 MB. |
 | `GET /api/v1/assets/<id>/content` | designer, drafter | The stored PNG. |
+| `GET /api/v1/fonts`, `POST /api/v1/fonts` | designer, drafter (list) / designer (upload) | List uploaded fonts; upload `{name, data}` with a font or zip file as base64 → `{fonts: [{id, name, family, style, subfamily, format, glyphs, bytes, restricted?, createdAt, createdBy}], skipped: [{name, reason}]}`. |
+| `GET /api/v1/fonts/<id>/content` | designer, drafter | The font file, for an editor that draws it. |
+| `DELETE /api/v1/fonts/<id>` | designer | Delete a font that no saved template uses (409 names the templates otherwise). |
 | `DELETE /api/v1/assets/<id>` | designer | Delete a picture that no saved template uses (409 names the templates otherwise). |
 | `POST /api/v1/previews` | client | See below → `{token, expiresAt, kind, template?, printer, layout, svg, png?, printable, warnings}`. Nothing prints. |
 | `POST /api/v1/jobs` | client | `{token, requestId}` (UUIDs) → the journal record. Prints one copy. |
