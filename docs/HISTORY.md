@@ -2,7 +2,9 @@
 
 ## 0.12.0 - 2026-10-27
 
-Phase 3: a PDF page as a picture, for shipping labels.
+Phase 3: a PDF page as a picture, for shipping labels, and more barcodes.
+
+- Barcodes: Code 39, EAN-8, UPC-A and ITF-14 through bwip-js, in whole printer dots like the others. The GS1 codes take their digits without the check digit, which is added (one GS1 check digit function for all four and EAN-13), or with a correct one; the text under the bars shows the full number. ITF-14 prints without bearer bars.
 
 - A picture upload takes one page of a PDF (`page`, 1 by default). poppler's `pdftoppm` draws it at up to 300 dpi (smaller when the page is larger than 4000 pixels on a side) in a private temporary folder; `pdfinfo` counts the pages, and a page past the last is refused with the number of pages. The record has `type: "pdf"`, `page` and `pages`. The images install `poppler-utils`.
 - `crop` `{x, y, w, h}`, shares of the picture from 0 to 1, keeps part of any uploaded picture, so a shipping label can be cut from an A4 page.

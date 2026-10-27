@@ -8,7 +8,7 @@ export const templateId = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const fieldName = /^[a-zA-Z][a-zA-Z0-9_]{0,39}$/;
 const objectTypes = ['text', 'stack', 'line', 'rect', 'ellipse', 'barcode', 'date', 'image'];
 export const assetId = /^[a-f0-9]{12}$/;
-export const symbologies = ['code128', 'ean13', 'qrcode', 'datamatrix'];
+export const symbologies = ['code128', 'code39', 'ean13', 'ean8', 'upca', 'itf14', 'qrcode', 'datamatrix'];
 export const twoDimensional = symbology => ['qrcode', 'datamatrix'].includes(symbology);
 // Date formats use yyyy, yy, MM, dd, HH and mm; anything else is printed as it is.
 const dateFormat = /^[\p{L}\p{N}\p{P}\p{Zs}]{1,40}$/u;

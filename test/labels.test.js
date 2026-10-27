@@ -6,6 +6,7 @@ import { layoutSvg, pageSvg } from '../src/svg.js';
 import { validateTemplate, builtInTemplates } from '../src/template.js';
 import { rsvgConvert } from '../src/convert.js';
 import { encodeRgba } from '../src/png.js';
+import { encode, gs1CheckDigit } from '../src/barcode.js';
 
 test('the box label keeps the original positions, real font metrics and Swedish glyphs', () => {
   const layout = labelLayout(testLabel); assert.deepEqual(layout.warnings, []);
@@ -313,4 +314,25 @@ test('dithered pictures default to threshold 140 and lighten 15, threshold pictu
   assert.equal(href({ mode: 'dither' }), href({ mode: 'dither', threshold: 140, lighten: 15 }));
   assert.notEqual(href({ mode: 'dither' }), href({ mode: 'dither', threshold: 128, lighten: 40 }));
   assert.equal(href({}), href({ mode: 'threshold', threshold: 128, lighten: 0 }));
+});
+
+test('Code 39, EAN-8, UPC-A and ITF-14 encode, add their check digits and lay out in whole dots', () => {
+  assert.deepEqual(['9638507', '03600029145', '1540014128876', '590123412345'].map(gs1CheckDigit), ['4', '2', '3', '7']);
+  const text = (symbology, data) => encode(symbology, data).text;
+  assert.equal(text('ean8', '9638507'), '96385074'); assert.equal(text('ean8', '96385074'), '96385074');
+  assert.equal(text('upca', '03600029145'), '036000291452'); assert.equal(text('itf14', '1540014128876'), '15400141288763');
+  assert.equal(text('code39', 'SNI-FPV 42'), 'SNI-FPV 42');
+  assert.throws(() => encode('ean8', '96385075'), /check digit/); assert.throws(() => encode('code39', 'lower'), /capital letters/);
+  const media = labelMediaPresets.find(p => p.key === 'w162h90');
+  const definition = { id: 'codes', name: 'Codes', media: ['w162h90'], fields: {}, objects: [
+    { id: 'c39', type: 'barcode', x: 2, y: 2, w: 53, h: 8, symbology: 'code39', data: 'A-1' },
+    { id: 'e8', type: 'barcode', x: 2, y: 11, w: 25, h: 9, symbology: 'ean8', data: '9638507' },
+    { id: 'upc', type: 'barcode', x: 29, y: 11, w: 26, h: 9, symbology: 'upca', data: '03600029145' },
+    { id: 'itf', type: 'barcode', x: 2, y: 21, w: 53, h: 9, symbology: 'itf14', data: '1540014128876', humanReadable: 'none' }] };
+  validateTemplate(structuredClone(definition));
+  const layout = layoutTemplate(definition, {}, { media, style: media.style });
+  assert.deepEqual(layout.warnings, []);
+  const dot = 72 / 300;
+  for (const item of layout.items) for (const r of item.rects) assert.ok(Math.abs(r.w / dot - Math.round(r.w / dot)) < 0.01, `${item.id} bar ${r.w}`);
+  assert.deepEqual(layout.items.slice(0, 3).map(i => i.rows[0].text), ['A-1', '96385074', '036000291452']);
 });
