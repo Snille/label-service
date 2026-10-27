@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.14.3, live together with Label Studio 0.12.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.15.0, with Label Studio 0.12.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts; 0.15 calibrates each roll so labels print at true size and in place (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -47,7 +47,18 @@ The environment creates the first printer (`PRINTER_MODEL`, `CUPS_QUEUE`, `PRINT
 
 The five formats below are built in. The admin page adds more (decision B11). Reading a roll that is not known yet shows Add this roll, which fills the form from the roll's chip: its article number and size (bytes 40-43 of the ESC U answer, checked on five rolls). The chip gives the whole label, so check the size with a ruler: a fold-over label such as S0722550 reports 27.9 mm across but prints on a 19 mm face. To add a roll by hand, give the article number the roll reports (`S0722540` or seven digits), an optional name, and the label size in millimetres, the width across the print head first. An added roll prints through the PPD's custom page size (`custom_40x30mm_40x30mm`), as the shipping labels do; one wider than 62 mm is offered only to the wide models.
 
-A new roll is `testing` until its test print is approved (decision B12). While it is testing, only the admin can print its test label: a ruler from the middle of each edge inwards, with a tick every 0.5 mm. Where the first tick shows on paper is the margin of that edge. The admin enters the four margins and approves that print; then clients see the roll and templates can use it. An object that reaches into a margin is a fit problem, like one outside the label. The built-in formats are measured the same way: their test print and approval are on the same page, they keep printing meanwhile, and their margins are saved in the settings (`measured`). Before a roll's margins are saved, the admin page lists the templates, built-in ones included, that reach into them and would stop printing on that roll; the built-in labels cannot be changed, so such margins deserve a second look. A roll that a printer has loaded or a saved template names cannot be removed.
+A new roll is `testing` until its test print is approved (decision B12). While it is testing, only the admin can print its test label: a ruler from the middle of each edge inwards, with a tick every 0.5 mm and a number every 2 mm.
+
+### Calibration
+
+The DYMO 5XL prints an image at true size only while it is no wider than the printer takes for the roll; a wider image is shrunk to fit, the same in both directions. Measured in 2026-10: the 57 × 32 and 54 × 101 mm rolls take about 48.5 mm (576 dots) and printed at 88 and 92 %; the 102 mm shipping labels take their whole width. The printer also puts the image a little off the label (1.45 mm to the right and 0.7 mm high on the shipping labels). DYMO Connect prints true to size.
+
+So each roll is calibrated with its test print. With a calliper, the admin measures on each side, as the preview shows the label, the distance from the label's edge to the ruler's 6 mm mark (a smaller mark on very small rolls; the page names it) and enters the four distances:
+
+- If they show the print shrunk (below 98 %), the roll gets a narrower image: at most as many dots as the printer printed (`maxDots`), with the label centred on a custom page that wide. Print the test label again and measure once more.
+- Otherwise the drawing is moved by the mean error of its two edges on each axis (`offset`), and the edges that do not print follow from where the page lands on paper, at least 1 mm on every side (`margins`).
+
+Then clients see the roll and templates can use it. An object that reaches into a margin is a fit problem, like one outside the label. The built-in labels keep 3 mm at the sides or the measured edge if it is wider. An object that reaches into a margin is a fit problem, like one outside the label. The built-in formats are measured the same way: their test print and approval are on the same page, they keep printing meanwhile, and their calibration is saved in the settings (`measured`). Before a roll's margins are saved, the admin page lists the templates, built-in ones included, that reach into them and would stop printing on that roll; the built-in labels cannot be changed, so such margins deserve a second look. A roll that a printer has loaded or a saved template names cannot be removed.
 
 ## Run locally (Docker Desktop)
 
@@ -110,7 +121,7 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `GET`, `PUT /api/v1/settings` | admin | `{revision, config}`: `serverUrl`, `defaultPrinter`, `batchLimit`, `rolls`, `measured` (the built-in formats' margins) and `printers`. A new roll is saved as `testing`; only the approve call makes it approved. |
 | `POST /api/v1/roll` | admin | `{revision, printer?}`. Reads the loaded roll once; needs an idle, empty queue. |
 | `GET /api/v1/roll/readings` | admin | The last 20 roll readings: printer, time, article, labels remaining and the chip's whole answers as hex (`raw.consumable` from ESC U, `raw.status` from ESC A). |
-| `POST /api/v1/rolls/approve` | admin | `{revision, key, requestId, margins: {top, right, bottom, left}}`: approves a roll's test print (a `calibration` job on that roll that reached CUPS) with the margins read on paper, 0-10 mm; an added roll or a built-in format. With `check: true` it saves nothing and answers `{affected}`: the built-in kinds and saved templates (newest version) that reach into those margins, with the objects. |
+| `POST /api/v1/rolls/approve` | admin | `{revision, key, requestId, distances: {left, right, top, bottom}}`: calibrates a roll from its newest test print (a `calibration` job on that roll that reached CUPS): the distances in mm from each edge of the label to the ruler's reference mark. Answers the settings view and `result`: `{shrink, scale, maxDots}` (print the test label again) or `{scale, offset, margins}`. An added roll or a built-in format. With `check: true` it saves nothing and answers `{result, affected}`, the built-in kinds and saved templates (newest version) that would reach into the new margins. |
 
 Preview request: `{kind? | template?, version?, fields | test: true | rows, check?, printer?, mediaKey?, orientation?: 'portrait'|'landscape', reference?, include?: ['png']}`.
 

@@ -1,5 +1,16 @@
 # History
 
+## 0.15.0 - 2026-10-27
+
+Labels print at true size and in place: each roll is calibrated with its test print.
+
+- Found with the owner's calliper: the DYMO 5XL shrank every label on the 57 × 32 mm roll to about 88 % and on the 54 × 101 mm roll to about 92 %; both came out about 48.5 mm wide. A 45 mm wide image on the 54 mm roll and DYMO Connect printed at true size, and so did the 102 mm shipping labels, which take their whole width. The CUPS raster (300 dpi) and the DYMO driver do not scale; the printer shrinks an image wider than it takes for the roll. The shipping labels landed 1.45 mm to the right and 0.7 mm high.
+- The test print is now read with a calliper: the distance from each edge of the label to its ruler's 6 mm mark. `POST /api/v1/rolls/approve` takes `distances` instead of `margins` (src/calibration.js). A shrunk print gives the roll `maxDots`, the widest image the printer printed, and the roll needs another test print. A true print gives `offset`, which moves the drawing into place, and `margins`, where the page does not reach, at least 1 mm on every side (the owner's choice).
+- Every page is printed with its roll's calibration: a roll with `maxDots` prints on a custom page that wide (`custom_48.77x31.75mm…`), the label centred on it, and the drawing is moved by the offset. The journal record names that page as `printMedia`. The test print uses the calibration too, so it is read against it.
+- The built-in labels keep 3 mm at the sides, or the measured edge if it is wider, so they still print on a calibrated narrow roll.
+- A test print is used once: a roll measured with it or with a later one asks for a new test print.
+- Checked in Docker Desktop with a made-up printer: the 57 × 32 mm roll with the owner's shrunk readings got a 576-dot page, CUPS made a 575-dot raster for it, the second reading gave offset and edges, and the box label fitted. Tests use the owner's readings of the shipping labels and the 57 × 32 mm roll.
+
 ## 0.14.3 - 2026-10-27
 
 The rest of decision B12: the five built-in formats are measured too.

@@ -11,7 +11,8 @@ const cell = (row, value) => { const td = document.createElement('td'); if (valu
 const button = (label, action) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'quiet'; b.textContent = label; b.addEventListener('click', () => run(action)); return b; };
 const actions = (...buttons) => { const span = document.createElement('span'); span.className = 'actions'; span.append(...buttons); return span; };
 const sizeOf = p => `${p.widthMm} × ${p.heightMm} mm`;
-const marginsOf = m => m ? `top ${m.top}, right ${m.right}, bottom ${m.bottom}, left ${m.left} mm` : '';
+const marginsOf = p => p.margins ? `top ${p.margins.top}, right ${p.margins.right}, bottom ${p.margins.bottom}, left ${p.margins.left} mm${p.maxDots ? ` · image at most ${(p.maxDots * 25.4 / 300).toFixed(1)} mm wide` : ''}`
+  : p.maxDots ? `the printer shrinks wider images: ${(p.maxDots * 25.4 / 300).toFixed(1)} mm wide now; print the test label again` : '';
 const customKey = r => `custom_${r.widthMm}x${r.heightMm}mm_${r.widthMm}x${r.heightMm}mm`;
 
 const message = (text, error = false) => { $('message').textContent = text; $('message').className = error ? 'error' : ''; };
@@ -60,7 +61,7 @@ function showRolls() {
     const tr = document.createElement('tr');
     cell(tr, p.name); cell(tr, p.sku); cell(tr, sizeOf(p));
     cell(tr, p.custom ? (p.status === 'approved' ? 'approved' : 'testing: needs its test print') : 'built in');
-    cell(tr, marginsOf(p.margins) || (p.custom ? 'not measured yet' : 'not measured'));
+    cell(tr, marginsOf(p) || (p.custom ? 'not measured yet' : 'not measured'));
     // Built-in formats are measured with the same test print; only added rolls can be removed.
     const test = button(p.margins ? 'Test again' : 'Test print', async () => { testing = p.key; rollPreview = null; showRollTest(); $('roll-test').scrollIntoView(); });
     cell(tr, actions(test, ...(p.custom ? [button('Remove', async () => {
@@ -86,9 +87,9 @@ function showRollTest() {
   if (!rollPreview) $('roll-paper').replaceChildren();
   const job = testJob(media.key);
   $('roll-job').textContent = !supported ? `${modelOf(printer()).name} does not take ${sizeOf(media)} labels. Choose another printer.`
-    : job ? `Test print sent ${new Date(job.createdAt).toLocaleString()} (CUPS job ${job.jobId}). Enter the margins you read on that label and approve it.`
+    : job ? `Test print sent ${new Date(job.createdAt).toLocaleString()} (CUPS job ${job.jobId}). Measure that label and approve it.`
     : 'No test print of this roll has reached the printer yet.';
-  for (const side of ['top', 'right', 'bottom', 'left']) $(`margin-${side}`).value = media.margins?.[side] ?? 0;
+  $('roll-mark').textContent = media.calibrationMark;
   $('roll-approve-button').disabled = !job;
 }
 function showPrinters() {
@@ -230,13 +231,13 @@ $('roll-print').addEventListener('click', () => run(async () => {
   // Keep the same identifier after a lost response: retrying can only return the original job.
   const job = await api('/jobs', { token: rollPreview.token, requestId: rollRequestId });
   rollPreview = null; await jobs();
-  message(`Test label: ${job.state}${job.jobId ? `, CUPS job ${job.jobId}` : ''}. Read the margins on the paper.`, job.state !== 'submitted');
+  message(`Test label: ${job.state}${job.jobId ? `, CUPS job ${job.jobId}` : ''}. Measure it on the paper.`, job.state !== 'submitted');
 }));
 $('roll-approve').addEventListener('submit', event => { event.preventDefault(); run(async () => {
-  const job = testJob(testing), margins = Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [side, Number($(`margin-${side}`).value)]));
-  const request = { revision: settings.revision, key: testing, requestId: job.id, margins };
+  const job = testJob(testing), distances = Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [side, Number($(`distance-${side}`).value)]));
+  const request = { revision: settings.revision, key: testing, requestId: job.id, distances };
   // Templates that reach into the new margins would stop printing; name them and ask first.
-  const { affected } = await api('/rolls/approve', { ...request, check: true });
+  const { affected, result } = await api('/rolls/approve', { ...request, check: true });
   // The built-in labels (used by other systems) cannot be changed, so margins that stop them deserve a second look.
   const builtIns = affected.filter(a => a.status === 'built in');
   if (affected.length && !confirm(`These templates reach into the new margins and will not print on ${presetName(testing)} until they are changed:\n\n`
@@ -246,7 +247,11 @@ $('roll-approve').addEventListener('submit', event => { event.preventDefault(); 
     message('Not approved. Check the margins, or change those templates first.'); return;
   }
   settings = await api('/rolls/approve', request);
-  fill(); invalidate(); message(`Approved the margins of ${presetName(testing)}.${affected.length ? ` ${affected.length} template(s) need changes before they print on it.` : ''}`);
+  for (const side of ['top', 'right', 'bottom', 'left']) $(`distance-${side}`).value = '';
+  fill(); invalidate();
+  message(result.shrink
+    ? `The printer shrank the print to ${Math.round(result.scale * 100)} %. The next test print uses an image ${(result.maxDots * 25.4 / 300).toFixed(1)} mm wide: print the test label again and measure it.`
+    : `Saved ${presetName(testing)}: the image moves ${result.offset.x} mm across and ${result.offset.y} mm down, and the edges are ${marginsOf(result)}.${affected.length ? ` ${affected.length} template(s) need changes before they print on it.` : ''}`);
 }); });
 $('printer-model').addEventListener('change', showConnection);
 $('printer-connection').addEventListener('change', showConnection);

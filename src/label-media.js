@@ -30,11 +30,14 @@ export const customMediaKey = (widthMm, heightMm) => `custom_${widthMm}x${height
 const points = mm => Math.round(mmToPt(mm) * 100) / 100;
 export function customMedia(roll) {
   const media = preset(customMediaKey(roll.widthMm, roll.heightMm), roll.sku, roll.widthMm, roll.heightMm, points(roll.widthMm), points(roll.heightMm), {}, { wide: roll.widthMm > wideLabelMm });
-  return { ...media, name: roll.name ? `${roll.name} · ${media.name}` : media.name, custom: true, status: roll.status, ...(roll.margins ? { margins: roll.margins } : {}) };
+  return { ...media, name: roll.name ? `${roll.name} · ${media.name}` : media.name, custom: true, status: roll.status, ...calibrated(roll) };
 }
-// Every roll the service knows: the built-in formats, with the margins measured on their test prints (config.measured),
-// and the rolls saved in the settings.
-export const allMedia = config => [...labelMediaPresets.map(p => config?.measured?.[p.key] ? { ...p, margins: config.measured[p.key].margins } : p),
+// What a roll's test prints measured (src/calibration.js): the widest image the printer prints at true size
+// (maxDots), the offset that puts the drawing in place and the edges that do not print.
+const calibrated = m => ({ ...(m.maxDots ? { maxDots: m.maxDots } : {}), ...(m.offset ? { offset: m.offset } : {}), ...(m.margins ? { margins: m.margins } : {}) });
+// Every roll the service knows: the built-in formats, with what their test prints measured (config.measured), and
+// the rolls saved in the settings.
+export const allMedia = config => [...labelMediaPresets.map(p => config?.measured?.[p.key] ? { ...p, ...calibrated(config.measured[p.key]) } : p),
   ...(config?.rolls || []).map(customMedia)];
 
 // DYMO LabelWriter models. The 5xx models use the official LW5xx driver (raster2dymolw_v2); the 450 and 4XL use the

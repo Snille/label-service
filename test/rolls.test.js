@@ -8,14 +8,19 @@ import { setup } from './service.test.js';
 import { calibrationTemplate } from '../src/template.js';
 import { layoutTemplate } from '../src/labels.js';
 import { labelMediaPresets, customMedia } from '../src/label-media.js';
+import { evaluate, printPage, dotsSent } from '../src/calibration.js';
 
 // Made-up test data: the roll and the printer do not exist.
 const roll = { sku: 'S0700001', name: 'Test roll', widthMm: 40, heightMm: 30, status: 'testing' };
 const key = 'custom_40x30mm_40x30mm';
-const margins = { top: 1.5, right: 0.5, bottom: 1.5, left: 1 };
+// From each edge of the label to the ruler's 6 mm mark, as on a test print that is true to size but lands 1.5 mm to
+// the right and 2 mm low: the left and top rulers start inside the label, the right and bottom ones run over its edge.
+const distances = { left: 7.5, right: 4.5, top: 8, bottom: 4 };
+const margins = { left: 1.5, right: 1, top: 2, bottom: 1 };
 const update = (service, change) => { const config = structuredClone(service.config()); change(config); return service.save({ revision: service.revision(), config }); };
 const designer = { name: 'studio', role: 'designer' };
 const shape = (id, extra) => ({ id: 'edge-test', name: 'Edge test', media: [key], fields: {}, objects: [{ id, type: 'rect', ...extra }] });
+const approve = (service, rollKey, requestId, d, check) => service.approveRoll({ revision: service.revision(), key: rollKey, requestId, distances: d, ...(check ? { check } : {}) }, 'admin');
 
 async function testPrint(service) {
   const p = await service.preview({ kind: 'calibration', test: true }, 'admin');
@@ -30,6 +35,26 @@ test('the test label fits every roll edge to edge, with a ruler on each side', (
   }
 });
 
+test('the calibration follows the owner\'s measurements of the shipping labels and the 57 x 32 mm roll', () => {
+  // 2166659, true to size: left -1.3, right +1.6, top +0.4, bottom -1.0 as read on the rulers, that is from each edge
+  // to the 6 mm mark 7.3, 4.4, 5.6 and 7.0 mm.
+  const shipping = labelMediaPresets.find(p => p.sku === '2166659');
+  assert.deepEqual(evaluate(shipping, { left: 7.3, right: 4.4, top: 5.6, bottom: 7 }), { scale: 1, scaleY: 1, offset: { x: -1.45, y: 0.7 }, margins: { left: 1.3, right: 1, top: 1, bottom: 1 } });
+  // S0722540, shrunk to about 88 %: 40.1 mm between the 6 mm marks across, 17.3 mm along (45.15 and 19.75 drawn).
+  const small = labelMediaPresets.find(p => p.sku === 'S0722540');
+  assert.equal(dotsSent(small), 656);
+  const shrunk = evaluate(small, { left: 8.5, right: 8.55, top: 7.2, bottom: 7.25 });
+  assert.deepEqual([shrunk.shrink, shrunk.scale, shrunk.maxDots], [true, 0.89, 576]);
+  // The next test print goes on a page as wide as the printer takes, with the label centred on it.
+  const narrow = { ...small, maxDots: shrunk.maxDots };
+  assert.deepEqual(printPage(narrow), { key: 'custom_48.77x31.75mm_48.77x31.75mm', widthPt: 138.24, heightPt: 90, dx: -11.88, dy: 0, widthMm: 48.77, heightMm: 31.75, custom: true });
+  assert.equal(dotsSent(narrow), 576);
+  // Read on that print, true to size: the page covers 48.8 mm of the label, so the sides keep about 4 mm.
+  const fixed = evaluate(narrow, { left: 6.4, right: 5.45, top: 6, bottom: 6 });
+  assert.deepEqual(fixed, { scale: 1, scaleY: 1, offset: { x: -0.45, y: 0 }, margins: { left: 4.6, right: 3.7, top: 1, bottom: 1 } });
+  assert.match(String(evaluate(small, { left: 2, right: 2, top: 6, bottom: 6 }).invalid), /true/);
+});
+
 test('a new roll prints only its test label until its test print is approved', async t => {
   const { service, store } = setup(t);
   update(service, c => { c.rolls.push(roll); });
@@ -40,49 +65,64 @@ test('a new roll prints only its test label until its test print is approved', a
   assert.equal(service.formats().mediaPresets.some(p => p.key === key), false);
   assert.throws(() => service.saveTemplate({ definition: shape('box', { x: 2, y: 2, w: 10, h: 10 }) }, designer), /media lists/);
   // Approval cannot be written through the settings.
-  assert.throws(() => update(service, c => { c.rolls[0] = { ...c.rolls[0], status: 'approved', margins, test: { requestId: randomUUID(), approvedAt: new Date().toISOString(), approvedBy: 'admin' } }; }), /approved with its test print/);
+  const test = { requestId: randomUUID(), approvedAt: new Date().toISOString(), approvedBy: 'admin' };
+  assert.throws(() => update(service, c => { c.rolls[0] = { ...c.rolls[0], status: 'approved', margins, offset: { x: 0, y: 0 }, test }; }), /approved with its test print/);
   assert.throws(() => update(service, c => { c.rolls.push({ ...roll, sku: 'S0700002', widthMm: 41, status: 'approved' }); }), /starts as testing/);
 
   update(service, c => { c.printers[0].mediaKey = key; });
   await assert.rejects(service.preview({ test: true }, 'storagesystem'), /not approved yet/);
   await assert.rejects(service.preview({ test: true }, 'admin'), /not approved yet/);
   await assert.rejects(service.preview({ kind: 'calibration', test: true }, 'storagesystem'), { status: 403 });
-  assert.throws(() => service.approveRoll({ revision: service.revision(), key, requestId: randomUUID(), margins }, 'admin'), /Print the test label/);
+  assert.throws(() => approve(service, key, randomUUID(), distances), /Print the test label/);
 
   const job = await testPrint(service);
-  assert.deepEqual([job.kind, job.mediaKey, job.state], ['calibration', key, 'submitted']);
-  assert.throws(() => service.approveRoll({ revision: service.revision(), key, requestId: job.id, margins: { ...margins, top: 11 } }, 'admin'), /0-10 mm/);
-  const approved = service.approveRoll({ revision: service.revision(), key, requestId: job.id, margins }, 'admin');
+  assert.deepEqual([job.kind, job.mediaKey, job.state, job.printMedia], ['calibration', key, 'submitted', undefined]);
+  assert.throws(() => approve(service, key, job.id, { ...distances, top: 40 }), /0-30 mm/);
+  assert.throws(() => approve(service, key, job.id, { ...distances, left: 1, right: 1 }), /scale of 136 %/);
+  const approved = approve(service, key, job.id, distances);
   const saved = approved.config.rolls[0];
-  assert.deepEqual([saved.status, saved.margins, saved.test.requestId, saved.test.approvedBy], ['approved', margins, job.id, 'admin']);
+  assert.deepEqual([saved.status, saved.margins, saved.offset, saved.test.requestId, saved.test.approvedBy], ['approved', margins, { x: -1.5, y: -2 }, job.id, 'admin']);
+  assert.deepEqual(approved.result.offset, { x: -1.5, y: -2 });
+  // The same test print cannot be used twice: the calibration it was made with has changed.
+  assert.throws(() => approve(service, key, job.id, distances), /Print the test label again/);
   assert.equal(service.formats().mediaPresets.find(p => p.key === key).status, 'approved');
-  assert.equal((await service.preview({ test: true }, 'storagesystem')).printable, true);
+  // Labels on the roll are now drawn 1.5 mm to the left and 2 mm higher, so they land in place.
+  const p = await service.preview({ test: true }, 'storagesystem');
+  assert.equal(p.printable, true);
+  assert.deepEqual([p.layout.print.dx, p.layout.print.dy, p.layout.print.key], [-4.25, -5.67, key]);
   // The name and article may change later; the approval stays.
   update(service, c => { c.rolls[0].name = 'Renamed'; });
   assert.equal(service.config().rolls[0].status, 'approved');
   assert.equal(store.audit().ok, true);
 });
 
-test('a built-in format is measured the same way, and the approval first names the templates that reach into the margins', async t => {
-  const { service } = setup(t);
-  const job = await testPrint(service);
-  assert.equal(job.mediaKey, 'w162h90');
-  const edge = { id: 'edge-57', name: 'Edge 57', media: ['w162h90'], fields: {}, objects: [{ id: 'frame', type: 'rect', x: 0.5, y: 3, w: 20, h: 10 }] };
+test('a built-in format that the printer shrinks gets a narrower image first, then its offset and edges', async t => {
+  const { service, state } = setup(t);
+  const edge = { id: 'edge-57', name: 'Edge 57', media: ['w162h90'], fields: {}, objects: [{ id: 'frame', type: 'rect', x: 2, y: 3, w: 20, h: 10 }] };
   service.saveTemplate({ definition: edge }, designer);
-  // 3 mm on top reaches the built-in box label's title band (6/90 of 32 mm); 1 mm on the left reaches the saved frame.
-  const wide = { top: 3, right: 0.5, bottom: 1, left: 1 }, small = { top: 1, right: 0.5, bottom: 1, left: 0.4 };
-  const check = service.approveRoll({ revision: service.revision(), key: 'w162h90', requestId: job.id, margins: wide, check: true }, 'admin');
-  assert.deepEqual(check.affected.map(a => [a.id, a.objects]), [['box', ['title']], ['location', ['location']], ['lines', ['lines']], ['edge-57', ['frame']]]);
-  assert.equal(service.config().measured.w162h90, undefined);
-  assert.deepEqual(service.approveRoll({ revision: service.revision(), key: 'w162h90', requestId: job.id, margins: small, check: true }, 'admin').affected, []);
-  service.approveRoll({ revision: service.revision(), key: 'w162h90', requestId: job.id, margins: small }, 'admin');
-  assert.deepEqual(service.formats().media.margins, small);
-  assert.deepEqual(service.config().measured.w162h90.margins, small);
-  assert.equal((await service.preview({ test: true }, 'storagesystem')).printable, true);
+  const first = await testPrint(service);
+  assert.equal(first.mediaKey, 'w162h90');
+  const shrunk = approve(service, 'w162h90', first.id, { left: 8.5, right: 8.55, top: 7.2, bottom: 7.25 });
+  assert.deepEqual([shrunk.result.shrink, shrunk.config.measured.w162h90.maxDots, shrunk.config.measured.w162h90.margins], [true, 576, undefined]);
+  // The roll keeps printing, now on the narrower page; the next test print goes there too.
+  const second = await testPrint(service);
+  assert.equal(second.printMedia, 'custom_48.77x31.75mm_48.77x31.75mm');
+  const read = { left: 6.4, right: 5.45, top: 6, bottom: 6 };
+  // The built-in labels move in from the sides; the saved frame, 2 mm from the left, would stop printing.
+  const check = approve(service, 'w162h90', second.id, read, true);
+  assert.deepEqual(check.affected.map(a => [a.id, a.objects]), [['edge-57', ['frame']]]);
+  assert.equal(service.config().measured.w162h90.margins, undefined);
+  approve(service, 'w162h90', second.id, read);
+  assert.deepEqual(service.formats().media.margins, { left: 4.6, right: 3.7, top: 1, bottom: 1 });
+  const box = await service.preview({ test: true }, 'storagesystem');
+  assert.equal(box.printable, true);
+  const job = await service.submit({ token: box.token, requestId: randomUUID() }, 'storagesystem');
+  assert.equal(job.printMedia, 'custom_48.77x31.75mm_48.77x31.75mm');
+  assert.ok(state.document.length > 0);
   // Not through the settings.
-  assert.throws(() => update(service, c => { c.measured.w162h90.margins = wide; }), /only with its approved test print/);
+  assert.throws(() => update(service, c => { c.measured.w162h90.margins.left = 1; }), /only with its approved test print/);
   assert.throws(() => update(service, c => { delete c.measured.w162h90; }), /only with its approved test print/);
-  assert.throws(() => service.approveRoll({ revision: service.revision(), key: 'w54h144', requestId: job.id, margins: small }, 'admin'), /Print the test label/);
+  assert.throws(() => approve(service, 'w54h144', second.id, read), /Print the test label/);
 });
 
 test('a test print that did not reach the printer cannot be approved', async t => {
@@ -91,22 +131,22 @@ test('a test print that did not reach the printer cannot be approved', async t =
   state.fail = true;
   const job = await testPrint(service);
   assert.equal(job.state, 'unknown');
-  assert.throws(() => service.approveRoll({ revision: service.revision(), key, requestId: job.id, margins }, 'admin'), /did not reach the printer/);
+  assert.throws(() => approve(service, key, job.id, distances), /did not reach the printer/);
 });
 
-test('measured margins are edges a template must keep clear of, in both text directions', async t => {
+test('measured edges are edges a template must keep clear of, in both text directions', async t => {
   const { service } = setup(t);
   update(service, c => { c.rolls.push(roll); c.printers[0].mediaKey = key; });
-  service.approveRoll({ revision: service.revision(), key, requestId: (await testPrint(service)).id, margins }, 'admin');
-  const fits = await service.preview({ template: shape('box', { x: 1, y: 1.5, w: 38.5, h: 27 }), test: true }, designer);
+  approve(service, key, (await testPrint(service)).id, distances);
+  const fits = await service.preview({ template: shape('box', { x: 1.5, y: 2, w: 37.5, h: 27 }), test: true }, designer);
   assert.equal(fits.printable, true);
   const left = await service.preview({ template: shape('box', { x: 0.5, y: 2, w: 10, h: 10 }), test: true }, designer);
-  assert.equal(left.printable, false); assert.match(left.warnings[0].message, /"box" reaches into the edge that this roll does not print: 1 mm on the left\./);
+  assert.equal(left.printable, false); assert.match(left.warnings[0].message, /"box" reaches into the edge that this roll does not print: 1\.5 mm on the left\./);
   assert.deepEqual(left.layout.margins, margins);
   // Turned a quarter, the label's top edge becomes the canvas's right side (pageSvg: canvas (u, v) -> page (v, H - u)).
-  const turned = await service.preview({ template: { ...shape('box', { x: 2, y: 2, right: 1, h: 10 }), orientation: 'portrait' }, test: true }, designer);
-  assert.deepEqual(turned.layout.margins, { top: 1, right: 1.5, bottom: 0.5, left: 1.5 });
-  assert.match(turned.warnings[0].message, /1\.5 mm on the right/);
+  const turned = await service.preview({ template: { ...shape('box', { x: 2, y: 2, right: 1.5, h: 10 }), orientation: 'portrait' }, test: true }, designer);
+  assert.deepEqual(turned.layout.margins, { top: 1.5, right: 2, bottom: 1, left: 1 });
+  assert.match(turned.warnings[0].message, /2 mm on the right/);
   // The test print itself ignores the margins it measures, so the roll can be measured again.
   assert.equal((await service.preview({ kind: 'calibration', test: true }, 'admin')).printable, true);
 });
@@ -115,7 +155,7 @@ test('a roll that a template or printer uses cannot be removed', async t => {
   const { service } = setup(t);
   update(service, c => { c.rolls.push(roll); c.printers[0].mediaKey = key; });
   assert.throws(() => update(service, c => { c.rolls = []; }), /label format that this printer model supports/);
-  service.approveRoll({ revision: service.revision(), key, requestId: (await testPrint(service)).id, margins }, 'admin');
+  approve(service, key, (await testPrint(service)).id, distances);
   service.saveTemplate({ definition: shape('box', { x: 2, y: 2, w: 10, h: 10 }) }, designer);
   update(service, c => { c.printers[0].mediaKey = 'w162h90'; });
   assert.throws(() => update(service, c => { c.rolls = []; }), /used by the templates edge-test/);

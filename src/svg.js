@@ -35,9 +35,12 @@ export function layoutSvg(layout) {
 
 // The page as it is printed. Rotated canvas point (u, v) lands on page point (v, pageHeight - u): the same quarter turn
 // counterclockwise that the accepted PostScript pages used.
+// layout.print (src/calibration.js printPage) may make the page narrower than the label and move the drawing on it, so
+// the printer prints it at true size and in place.
 export function pageSvg(layout) {
-  const w = layout.pageWidthPt, h = layout.pageHeightPt;
-  const body = layout.rotated ? `<g transform="matrix(0 -1 1 0 0 ${h})">${content(layout)}</g>` : content(layout);
+  const w = layout.print?.widthPt ?? layout.pageWidthPt, h = layout.pageHeightPt, dx = layout.print?.dx || 0, dy = layout.print?.dy || 0;
+  const turned = layout.rotated ? `<g transform="matrix(0 -1 1 0 0 ${h})">${content(layout)}</g>` : content(layout);
+  const body = dx || dy ? `<g transform="translate(${dx} ${dy})">${turned}</g>` : turned;
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${w} ${h}" width="${w}pt" height="${h}pt">`
     + `<rect width="100%" height="100%" fill="white"/>${body}</svg>`;
 }

@@ -1,10 +1,10 @@
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { writeFileSync, renameSync } from 'node:fs';
-import { InputError, object, validatePrinting, validateMargins } from './validation.js';
+import { InputError, object, validatePrinting } from './validation.js';
 import { CupsPrinter } from './ipp.js';
-import { defaultLabelStyles, labelTemplates, layoutTemplate, testLabel, testLines } from './labels.js';
+import { defaultLabelStyles, labelTemplates, layoutTemplate, labelPage, testLabel, testLines } from './labels.js';
 import { printerModels, printerModel, mediaForModel, allMedia, customMediaKey, labelMediaPresets } from './label-media.js';
-import { builtInTemplates, validateTemplate, templateId, assetId, calibrationTemplate } from './template.js';
+import { builtInTemplates, validateTemplate, templateId, assetId, calibrationTemplate, fitBuiltIn } from './template.js';
 import { decodePng, isPng, encodeRgba } from './png.js';
 import { isPdf, pdfPage } from './pdf.js';
 import { fontFamilies, setUploadedFonts, readFont } from './fonts.js';
@@ -12,6 +12,7 @@ import { isZip, readZip } from './zip.js';
 import { readDymoRoll } from './dymo-roll.js';
 import { layoutSvg, pageSvg } from './svg.js';
 import { rsvgConvert } from './convert.js';
+import { evaluate, calibrationMark, printPage } from './calibration.js';
 
 const hash = input => createHash('sha256').update(input).digest('hex');
 export const revisionOf = config => hash(JSON.stringify(config));
@@ -36,7 +37,8 @@ const canDraft = client => ['designer', 'drafter'].includes(client.role);
 const wasPublished = record => record.status === 'published' || Boolean(record.publishedAt);
 // Templates may name only approved rolls; a roll that is still testing prints nothing but its test print.
 const approvedMedia = config => allMedia(config).filter(p => p.status === 'approved');
-const approval = roll => JSON.stringify([roll.status, roll.margins && [roll.margins.top, roll.margins.right, roll.margins.bottom, roll.margins.left], roll.test?.requestId, roll.test?.approvedAt, roll.test?.approvedBy]);
+const approval = roll => JSON.stringify([roll.status, roll.margins && [roll.margins.top, roll.margins.right, roll.margins.bottom, roll.margins.left],
+  roll.offset && [roll.offset.x, roll.offset.y], roll.maxDots, roll.test?.requestId, roll.test?.approvedAt, roll.test?.approvedBy]);
 const sameRoll = (a, b) => approval(a) === approval(b);
 const summary = record => ({ id: record.id, name: record.name, builtIn: false, version: record.version, status: record.status, media: record.definition.media,
   description: record.definition.description, fields: record.definition.fields, createdAt: record.createdAt, createdBy: record.createdBy });
@@ -82,7 +84,7 @@ export class PrintService {
   view() {
     const config = this.config(), printer = this.printerConfig(config);
     const media = allMedia(config);
-    return { config, revision: revisionOf(config), media: media.find(p => p.key === printer.mediaKey), mediaPresets: media,
+    return { config, revision: revisionOf(config), media: media.find(p => p.key === printer.mediaKey), mediaPresets: media.map(m => ({ ...m, calibrationMark: calibrationMark(m) })),
       models: printerModels.map(m => ({ ...m, media: mediaForModel(m.key, media).map(p => p.key) })), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies(),
       queuesFile: Boolean(this.queuesFile) };
   }
@@ -105,7 +107,7 @@ export class PrintService {
       for (const roll of config.rolls || []) {
         object(roll, 'roll');
         const key = customMediaKey(roll.widthMm, roll.heightMm), old = before.rolls.find(r => customMediaKey(r.widthMm, r.heightMm) === key);
-        if (old ? !sameRoll(roll, old) : roll.status !== 'testing' || roll.margins !== undefined || roll.test !== undefined) {
+        if (old ? !sameRoll(roll, old) : roll.status !== 'testing' || ['margins', 'offset', 'maxDots', 'test'].some(k => roll[k] !== undefined)) {
           throw new InputError('A new roll starts as testing, and it is approved with its test print on the admin page.');
         }
       }
@@ -127,14 +129,20 @@ export class PrintService {
       return this.view();
     });
   }
-  // Approves a roll's test print (decision B12): the request id of a test print of that roll that reached CUPS, and the
-  // margins read from the paper. Approving again with a new test print measures the roll anew. A built-in format keeps
-  // its margins in config.measured. check: true answers which templates would reach into the new margins (they would
-  // no longer print) and saves nothing.
+  // Approves a roll's test print (decision B12): the request id of a test print of that roll that reached CUPS, and
+  // distances { left, right, top, bottom }, from each edge of the label to its ruler's reference mark, measured on the
+  // paper. They give the printer's scale, the image's offset and the edges that do not print (src/calibration.js).
+  // If the printer shrank the print, only the narrower image width is saved, and the roll needs another test print.
+  // A built-in format keeps its calibration in config.measured. check: true saves nothing and answers the result and
+  // the templates that would reach into the new margins (they would no longer print).
   approveRoll(input, client) {
     client = who(client); object(input);
-    if (Object.keys(input).some(k => !['revision', 'key', 'requestId', 'margins', 'check'].includes(k)) || (input.check !== undefined && typeof input.check !== 'boolean')) {
-      throw new InputError('Send { revision, key, requestId, margins, check? }.');
+    if (Object.keys(input).some(k => !['revision', 'key', 'requestId', 'distances', 'check'].includes(k)) || (input.check !== undefined && typeof input.check !== 'boolean')) {
+      throw new InputError('Send { revision, key, requestId, distances, check? }.');
+    }
+    const d = object(input.distances, 'distances');
+    if (Object.keys(d).sort().join(',') !== 'bottom,left,right,top' || Object.values(d).some(v => typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 30)) {
+      throw new InputError('distances are left, right, top and bottom: 0-30 mm from the label\'s edge to the ruler\'s mark.');
     }
     return this.store.transaction(() => {
       this.assertRevision(input.revision);
@@ -144,13 +152,18 @@ export class PrintService {
       const job = typeof input.requestId === 'string' ? this.store.printJob(input.requestId) : null;
       if (!job || job.kind !== 'calibration' || job.mediaKey !== input.key) throw new InputError('Print the test label of this roll first, then approve that print.', 409);
       if (job.state !== 'submitted') throw new InputError(`The test print is ${job.state}; it did not reach the printer. Print it again.`, 409);
-      const margins = validateMargins(structuredClone(input.margins)), test = { requestId: job.id, approvedAt: new Date().toISOString(), approvedBy: client.name };
-      if (builtIn) config.measured = { ...config.measured, [input.key]: { margins, test } };
-      else Object.assign(roll, { status: 'approved', margins, test });
+      // The test print was made with the calibration the roll had then; it is still the current one unless approved since.
+      const media = allMedia(config).find(p => p.key === input.key), stored = builtIn ? config.measured[input.key]?.test : roll.test;
+      if (stored && (stored.requestId === job.id || job.createdAt < stored.approvedAt)) throw new InputError('The roll was measured with this or a later test print. Print the test label again.', 409);
+      const result = evaluate(media, d), test = { requestId: job.id, approvedAt: new Date().toISOString(), approvedBy: client.name };
+      if (result.invalid) throw new InputError(`These distances give a scale of ${Math.round(result.scale * 100)} % across and ${Math.round(result.scaleY * 100)} % along the label. Measure again from each edge to the ${calibrationMark(media)} mm mark.`);
+      const calibration = result.shrink ? { maxDots: result.maxDots, test } : { ...(media.maxDots ? { maxDots: media.maxDots } : {}), offset: result.offset, margins: result.margins, test };
+      if (builtIn) config.measured = { ...config.measured, [input.key]: calibration };
+      else { for (const k of ['margins', 'offset', 'maxDots']) delete roll[k]; Object.assign(roll, calibration, { status: result.shrink ? 'testing' : 'approved' }); }
       validatePrinting(config);
-      if (input.check) return { affected: this.marginUsers(config, input.key) };
+      if (input.check) return { result, affected: result.shrink ? [] : this.marginUsers(config, input.key) };
       this.store.writePrinting(config);
-      return this.view();
+      return { ...this.view(), result };
     });
   }
   // The built-in kinds and saved templates (the newest version of each) for a roll that reach into its margins, laid
@@ -165,7 +178,8 @@ export class PrintService {
       const objects = new Set();
       for (const style of styles) {
         try {
-          const layout = layoutTemplate(definition, this.sampleFields(definition, media), { media, style, picture: id => this.picture(id) });
+          const shaped = ref.status === 'built in' ? fitBuiltIn(definition, labelPage(media, definition.orientation || style.orientation).margins) : definition;
+          const layout = layoutTemplate(shaped, this.sampleFields(definition, media), { media, style, picture: id => this.picture(id) });
           for (const p of layout.problems) if (p.message.includes('does not print')) objects.add(p.object);
         } catch { /* a template whose samples do not lay out is not judged here */ }
       }
@@ -456,8 +470,11 @@ export class PrintService {
     // A client may choose the text direction for this label; otherwise the template's or the format's saved direction applies.
     const style = printer.styles[printer.mediaKey];
     // The test print measures the edges, so it ignores margins measured before and keeps the roll's natural direction.
-    const lay = values => layoutTemplate(definition, values, calibration ? { media: { ...media, margins: undefined }, style, orientation: definition.orientation }
-      : { media, style, orientation: input.orientation, picture: id => this.picture(id) });
+    // Every page is printed with the roll's calibration, the test print too, so its rulers are read against it.
+    const page = printPage(media), orientation = calibration ? definition.orientation : input.orientation;
+    const shaped = builtIn && !calibration ? fitBuiltIn(definition, labelPage(media, orientation || definition.orientation || style.orientation).margins) : definition;
+    const lay = values => Object.assign(layoutTemplate(shaped, values, calibration ? { media: { ...media, margins: undefined }, style, orientation }
+      : { media, style, orientation, picture: id => this.picture(id) }), { print: page });
     const layouts = rows ? rows.map((row, index) => {
       try { return lay(row); } catch (error) { if (error instanceof InputError) error.message = `Row ${index + 1}: ${error.message}`; throw error; }
     }) : [lay(fields)];
@@ -491,7 +508,7 @@ export class PrintService {
     for (const [id, p] of this.previews) if (p.expires <= now) this.previews.delete(id);
     if (this.previews.size >= 100) throw new InputError('Too many label previews. Wait for an older preview to expire.', 429);
     const expires = now + 10 * 60 * 1000;
-    this.previews.set(token, { config, revision, printer: printer.id, kind, template, client: client.name, reference: input.reference, layout, driver,
+    this.previews.set(token, { config, revision, printer: printer.id, kind, template, client: client.name, reference: input.reference, layout, driver, cupsMedia: page.key,
       printable: answer.printable, document, labels: rows?.length || 1, expires });
     return { token, expiresAt: new Date(expires).toISOString(), ...answer };
   }
@@ -519,14 +536,14 @@ export class PrintService {
     try {
       const cups = this.printer(preview.config, printer), status = await this.settle(cups, printer); this.assertPreview(preview);
       if (!status.acceptingJobs || status.state === 'stopped' || !status.formats.includes(documentFormat)) throw new InputError('The queue is stopped, not accepting jobs or does not support PDF.', 409);
-      await cups.validate(printer.mediaKey, `label-service ${client.name}`, documentFormat, preview.driver); this.assertPreview(preview);
+      await cups.validate(preview.cupsMedia, `label-service ${client.name}`, documentFormat, preview.driver); this.assertPreview(preview);
       const claim = this.store.claimPrint({ id: input.requestId, tokenHash, documentHash: hash(preview.document), settingsRevision: preview.revision,
-        serverUrl: preview.config.serverUrl, queue: printer.queue, printer: printer.id, mediaKey: printer.mediaKey, documentFormat, createdAt: new Date().toISOString(), state: 'submitting',
+        serverUrl: preview.config.serverUrl, queue: printer.queue, printer: printer.id, mediaKey: printer.mediaKey, ...(preview.cupsMedia !== printer.mediaKey ? { printMedia: preview.cupsMedia } : {}), documentFormat, createdAt: new Date().toISOString(), state: 'submitting',
         client: client.name, kind: preview.kind, ...(preview.template ? { template: preview.template } : {}), ...(preview.reference ? { reference: preview.reference } : {}),
         ...(preview.labels > 1 ? { labels: preview.labels } : {}) });
       if (!claim.claimed) return claim.job;
       claimed = true; sent = true;
-      const jobId = await cups.print(printer.mediaKey, `label-service ${client.name}`, preview.document, documentFormat, preview.driver);
+      const jobId = await cups.print(preview.cupsMedia, `label-service ${client.name}`, preview.document, documentFormat, preview.driver);
       return this.store.updatePrint(input.requestId, { state: 'submitted', jobId });
     } catch (error) {
       if (claimed) {

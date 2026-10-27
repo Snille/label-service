@@ -223,6 +223,12 @@ export function calibrationTemplate(media) {
   if (free.w >= 12 && free.h >= 6) objects.push({ id: 'roll', type: 'text', ...free, text: `${media.sku}\n${media.widthMm} × ${media.heightMm} mm`, size: 8, minSize: 4, bold: true, align: 'center', valign: 'middle' });
   return { id: 'calibration', name: 'Roll test print', media: ['*'], orientation: naturalOrientation(media), fields: {}, objects };
 }
+// The built-in labels keep 3 mm at the sides, or more on a roll whose measured edges are wider (margins in the
+// canvas frame, mm), since other systems print them and cannot change them.
+export function fitBuiltIn(definition, margins) {
+  if (!margins) return definition;
+  return { ...definition, objects: definition.objects.map(o => ({ ...o, x: Math.max(3, margins.left), right: Math.max(3, margins.right) })) };
+}
 export const builtInDescriptions = {
   box: { title: 'text, max 240', description: 'text, max 2000, may be empty', location: 'text, max 240' },
   location: { location: 'text, max 240; printed large' },

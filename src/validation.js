@@ -79,17 +79,28 @@ function validateTest(test) {
     throw new InputError('Measured margins name their approved test print.');
   }
 }
+// What a roll's test prints measured (src/calibration.js). A finished calibration has margins and an offset; one that
+// found the printer shrinking the print has only the narrower width (maxDots) until the next test print.
+function validateCalibration(m, finished) {
+  if (m.maxDots !== undefined && !(Number.isInteger(m.maxDots) && m.maxDots % 8 === 0 && m.maxDots >= 200 && m.maxDots <= 1248)) throw new InputError('maxDots is 200-1248 printer dots in steps of 8.');
+  if (finished) {
+    validateMargins(m.margins); validateTest(m.test);
+    const o = object(m.offset, 'offset');
+    if (Object.keys(o).sort().join(',') !== 'x,y' || ![o.x, o.y].every(v => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 10)) throw new InputError('offset is { x, y }, -10 to 10 mm.');
+  } else if (m.margins !== undefined || m.offset !== undefined || (m.test !== undefined && m.maxDots === undefined)) {
+    throw new InputError('A roll gets margins and an offset when its test print is approved.');
+  }
+}
 // A roll added on the admin page. It is "testing" until its test print is approved; then it has the measured margins
 // and the request id of that test print.
 export function validateRoll(roll) {
   object(roll, 'roll');
-  if (Object.keys(roll).some(key => !['sku', 'name', 'widthMm', 'heightMm', 'status', 'margins', 'test'].includes(key))) throw new InputError('Unsupported roll setting.');
+  if (Object.keys(roll).some(key => !['sku', 'name', 'widthMm', 'heightMm', 'status', 'margins', 'offset', 'maxDots', 'test'].includes(key))) throw new InputError('Unsupported roll setting.');
   if (typeof roll.sku !== 'string' || !rollArticle.test(roll.sku)) throw new InputError('A roll needs its article number as the roll reports it: S and seven digits (S0722540) or seven digits.');
   if (roll.name !== undefined && (typeof roll.name !== 'string' || !roll.name.trim() || roll.name.length > 60)) throw new InputError('A roll name is at most 60 characters.');
   if (!tenths(roll.widthMm, 10, 110) || !tenths(roll.heightMm, 10, 400)) throw new InputError('A roll is 10-110 mm wide (across the print head) and 10-400 mm long, in steps of 0.1 mm.');
   if (!['testing', 'approved'].includes(roll.status)) throw new InputError('A roll is testing or approved.');
-  if (roll.status === 'approved') { validateMargins(roll.margins); validateTest(roll.test); }
-  else if (roll.margins !== undefined || roll.test !== undefined) throw new InputError('A roll gets margins when its test print is approved.');
+  validateCalibration(roll, roll.status === 'approved');
   return roll;
 }
 
@@ -105,8 +116,8 @@ export function validatePrinting(config) {
     for (const [key, m] of Object.entries(config.measured)) {
       if (!labelMediaPresets.some(p => p.key === key)) throw new InputError('Measured margins are for the built-in formats.');
       object(m, 'measured format');
-      if (Object.keys(m).sort().join(',') !== 'margins,test') throw new InputError('Measured margins are { margins, test }.');
-      validateMargins(m.margins); validateTest(m.test);
+      if (Object.keys(m).some(k => !['margins', 'offset', 'maxDots', 'test'].includes(k))) throw new InputError('Measured formats are { margins, offset, maxDots, test }.');
+      validateTest(m.test); validateCalibration(m, m.margins !== undefined);
     }
   }
   if (config.rolls !== undefined) {
@@ -137,6 +148,7 @@ export function validatePrintJob(record) {
     || (record.printer !== undefined && !printerId.test(record.printer))
     || (record.documentFormat !== undefined && !['application/postscript', 'application/pdf'].includes(record.documentFormat))
     || (record.reference !== undefined && (typeof record.reference !== 'string' || record.reference.length > 200))
+    || (record.printMedia !== undefined && !/^[a-zA-Z0-9_.]{3,80}$/.test(record.printMedia))
     || (record.labels !== undefined && (!Number.isInteger(record.labels) || record.labels < 2 || record.labels > 500))) throw new InputError('Invalid print job record.');
   serverUrl(record.serverUrl);
   // The roll of an old job may have been removed since, so the key is checked by its form only.
