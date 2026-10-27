@@ -28,6 +28,11 @@
         <p id="roll" class="hint"></p>
         <button id="use-roll" class="quiet" hidden>Use the detected format</button>
         <p class="hint">Reading the roll briefly reserves the printer and releases it. Read it after every roll change, while nothing is printing. No label is fed.</p>
+        <details id="readings-box">
+          <summary>Roll chip readings (raw)</summary>
+          <p class="hint">The last 20 readings, with the chip's whole answer in hex: 16 bytes per row, the offset first. Only the article number and the label count are decoded today.</p>
+          <div id="readings"></div>
+        </details>
       </section>
 
       <form id="settings" class="panel">

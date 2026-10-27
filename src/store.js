@@ -85,6 +85,13 @@ export class Store {
     this.db.prepare("INSERT INTO settings VALUES ('printing', ?) ON CONFLICT(id) DO UPDATE SET record = excluded.record").run(JSON.stringify(config));
   }
 
+  // The last 20 roll readings with the chip's raw answers, kept as one settings row (no schema change).
+  rollReadings() { const row = this.db.prepare("SELECT record FROM settings WHERE id='roll-readings'").get(); return row ? JSON.parse(row.record).readings : []; }
+  addRollReading(reading) {
+    const readings = [reading, ...this.rollReadings()].slice(0, 20);
+    this.db.prepare("INSERT INTO settings VALUES ('roll-readings', ?) ON CONFLICT(id) DO UPDATE SET record = excluded.record").run(JSON.stringify({ readings }));
+  }
+
   templateVersions(id) { return this.db.prepare('SELECT record FROM templates WHERE id=? ORDER BY version').all(id).map(row => JSON.parse(row.record)); }
   templateIds() { return this.db.prepare('SELECT DISTINCT id FROM templates ORDER BY id').all().map(row => row.id); }
   template(id, version) { const row = this.db.prepare('SELECT record FROM templates WHERE id=? AND version=?').get(id, version); return row ? JSON.parse(row.record) : null; }

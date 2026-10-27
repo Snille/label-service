@@ -170,7 +170,10 @@ export class PrintService {
     try {
       const queue = await this.printer(config, printer).status(); this.assertRevision(input.revision);
       if (queue.state !== 'idle' || queue.queuedJobs !== 0) throw new InputError('Read the roll only while the CUPS queue is idle and empty.', 409);
-      const roll = await this.rollReader(printer.rollReader); this.assertRevision(input.revision);
+      const roll = await this.rollReader(printer.rollReader);
+      // The reading is kept even if the settings changed meanwhile: it describes the roll, not the settings.
+      if (roll?.raw) this.store.addRollReading({ printer: printer.id, observedAt: roll.observedAt || new Date().toISOString(), sku: roll.sku, labelsRemaining: roll.labelsRemaining, raw: roll.raw });
+      this.assertRevision(input.revision);
       // The roll reader knows the built-in formats; added rolls are found by their article number too.
       roll.media = allMedia(config).find(p => p.sku === roll.sku) || null; roll.sizeSource = roll.media ? 'sku-preset' : 'unknown';
       return { roll, printer: printer.id, revision: input.revision };

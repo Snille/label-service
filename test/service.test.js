@@ -194,8 +194,13 @@ test('roll reading needs an idle empty queue, never overlaps and is discarded wh
   await assert.rejects(service.readRoll({ revision: service.revision() }), /idle and empty/); assert.equal(calls, 0);
   service.lastRollCheck.clear(); state.queue.queuedJobs = 0; const pending = service.readRoll({ revision: service.revision() }); await new Promise(setImmediate);
   assert.equal(service.busy.has('dymo-5xl'), true); await assert.rejects(service.readRoll({ revision: service.revision() }), /Wait/);
-  update(service, c => { c.printers[0].queue = 'changed'; }); resolve({ labelsRemaining: 123 });
+  update(service, c => { c.printers[0].queue = 'changed'; }); resolve({ sku: 'S0722540', labelsRemaining: 123, observedAt: '2026-10-27T12:00:00.000Z', raw: { status: '00', consumable: 'b6ca' } });
   await assert.rejects(pending, /settings changed/); assert.equal(service.busy.size, 0);
+  // The chip's raw answer is kept even so, newest first, at most 20.
+  assert.deepEqual(service.store.rollReadings()[0], { printer: 'dymo-5xl', observedAt: '2026-10-27T12:00:00.000Z', sku: 'S0722540', labelsRemaining: 123, raw: { status: '00', consumable: 'b6ca' } });
+  for (let i = 0; i < 25; i++) service.store.addRollReading({ printer: 'dymo-5xl', observedAt: String(i), sku: 'S0722540', labelsRemaining: i, raw: {} });
+  assert.equal(service.store.rollReadings().length, 20); assert.equal(service.store.rollReadings()[0].labelsRemaining, 24);
+  assert.equal(service.store.audit().ok, true);
 });
 
 test('several printers keep their own queue, roll and model limits', async t => {

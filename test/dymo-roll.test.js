@@ -36,6 +36,7 @@ test('roll reading waits for ownership and releases exactly its own lock on one 
   await f.settled();
   assert.deepEqual(f.commands, ['1b4101', '1b4101', '1b55', '1b51']); assert.equal(f.connections(), 1);
   assert.equal(result.labelsRemaining, 123); assert.equal(result.sku, 'S0722540'); assert.equal(result.media.key, 'w162h90'); assert.equal(result.sizeSource, 'sku-preset'); assert.equal(result.releaseRequested, true);
+  assert.equal(result.raw.consumable, sku().toString('hex')); assert.equal(result.raw.status.length, 64);
 });
 test('failed lock attempts and active jobs never receive an end-job command', async t => {
   for (const active of [false, true]) {

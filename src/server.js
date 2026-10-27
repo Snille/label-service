@@ -123,6 +123,7 @@ export function createApp({ store, env = process.env, service } = {}) {
       if (path === '/api/v1/settings' && method === 'GET') { admin(); return json(service.view()); }
       if (path === '/api/v1/settings' && method === 'PUT') { admin(); return json(service.save(await body(req))); }
       if (path === '/api/v1/roll' && method === 'POST') { admin(); return json(await service.readRoll(await body(req))); }
+      if (path === '/api/v1/roll/readings' && method === 'GET') { admin(); return json({ readings: service.store.rollReadings() }); }
       if (path === '/api/v1/rolls/approve' && method === 'POST') { admin(); return json(service.approveRoll(await body(req), client)); }
       throw new InputError('Not found.', 404);
     } catch (error) {

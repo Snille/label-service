@@ -1,5 +1,10 @@
 # History
 
+## 0.14.1 - 2026-10-27
+
+- A roll reading keeps the chip's whole answers (64 bytes from ESC U, 32 from ESC A) as hex in `raw`. The last 20 readings are stored in one settings row (no schema change) and listed by `GET /api/v1/roll/readings`; the admin page shows them as a hex dump with offsets. Only the article number and the label count are decoded; the readings are for finding where the chip keeps the label size, so a new roll could be added by reading it.
+- A reading is kept even when the settings changed during it, because it describes the roll.
+
 ## 0.14.0 - 2026-10-27
 
 Phase 3: uploaded fonts. Schema 4: back up the database before updating.

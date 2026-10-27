@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.14.0, live together with Label Studio 0.12.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.14.1, with Label Studio 0.12.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -81,7 +81,7 @@ The environment sets the first settings. After an admin saves settings through t
 
 ## Admin page
 
-Open the service in a browser and enter the admin key. The page shows the CUPS queue of the chosen printer, reads the loaded roll (`Use the detected format` selects it), sets the selected format and each format's text direction and sizes, sets the batch limit, adds and removes rolls and prints and approves their test prints, adds and removes printers, previews and prints one test label, and lists recent jobs. The key stays in the tab's memory only.
+Open the service in a browser and enter the admin key. The page shows the CUPS queue of the chosen printer, reads the loaded roll (`Use the detected format` selects it) and shows the last readings with the chip's raw answers, sets the selected format and each format's text direction and sizes, sets the batch limit, adds and removes rolls and prints and approves their test prints, adds and removes printers, previews and prints one test label, and lists recent jobs. The key stays in the tab's memory only.
 
 ## API
 
@@ -109,6 +109,7 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `GET /api/v1/jobs`, `GET /api/v1/jobs/<requestId>` | client (own) / admin (all) | Journal records, with live CUPS job state for one job. |
 | `GET`, `PUT /api/v1/settings` | admin | `{revision, config}`: `serverUrl`, `defaultPrinter`, `batchLimit`, `rolls` and `printers`. A new roll is saved as `testing`; only the approve call makes it approved. |
 | `POST /api/v1/roll` | admin | `{revision, printer?}`. Reads the loaded roll once; needs an idle, empty queue. |
+| `GET /api/v1/roll/readings` | admin | The last 20 roll readings: printer, time, article, labels remaining and the chip's whole answers as hex (`raw.consumable` from ESC U, `raw.status` from ESC A). |
 | `POST /api/v1/rolls/approve` | admin | `{revision, key, requestId, margins: {top, right, bottom, left}}`: approves a roll's test print (a `calibration` job on that roll that reached CUPS) with the margins read on paper, 0-10 mm. |
 
 Preview request: `{kind? | template?, version?, fields | test: true | rows, check?, printer?, mediaKey?, orientation?: 'portrait'|'landscape', reference?, include?: ['png']}`.

@@ -128,6 +128,20 @@ async function jobs() {
     return tr;
   }));
 }
+// A hex string as rows of 16 bytes: offset, bytes, and the printable characters.
+const dump = hex => (hex.match(/.{1,32}/g) || []).map((row, i) => {
+  const bytes = row.match(/../g);
+  return `${(i * 16).toString().padStart(3, ' ')}  ${bytes.join(' ').padEnd(47, ' ')}  ${bytes.map(b => { const c = parseInt(b, 16); return c >= 32 && c < 127 ? String.fromCharCode(c) : '.'; }).join('')}`;
+}).join('\n');
+async function readings() {
+  const { readings } = await api('/roll/readings');
+  $('readings').replaceChildren(...(readings.length ? readings.map(r => {
+    const block = document.createElement('div'), title = document.createElement('p'), pre = document.createElement('pre');
+    title.textContent = `${new Date(r.observedAt).toLocaleString()} · ${printerName(r.printer)} · ${r.sku} · ${r.labelsRemaining} labels remaining`;
+    pre.textContent = `Consumable (ESC U, ${r.raw.consumable.length / 2} bytes)\n${dump(r.raw.consumable)}\n\nStatus (ESC A, ${r.raw.status.length / 2} bytes)\n${dump(r.raw.status)}`;
+    block.append(title, pre); return block;
+  }) : [Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No readings yet. Read the loaded roll above.' })]));
+}
 function invalidate() { preview = null; requestId = null; $('paper').replaceChildren(); $('print').disabled = true; }
 async function save(change, done) {
   const config = structuredClone(settings.config); change(config, config.printers.find(p => p.id === current));
@@ -140,7 +154,7 @@ async function save(change, done) {
 $('login').addEventListener('submit', event => { event.preventDefault(); key = $('key').value; run(async () => {
   settings = await api('/settings'); current = settings.config.defaultPrinter; fill(); $('login').hidden = true; $('app').hidden = false; $('key').value = '';
   // Show the journal even when CUPS is unreachable; the queue error is reported after it.
-  await jobs(); message(''); await status();
+  await jobs(); await readings(); message(''); await status();
 }); });
 $('printer').addEventListener('change', () => run(async () => { current = $('printer').value; roll = null; $('roll').textContent = ''; $('use-roll').hidden = true; fill(); invalidate(); message(''); await status(); }));
 $('refresh').addEventListener('click', () => run(async () => { await status(); await jobs(); message(''); }));
@@ -149,6 +163,7 @@ $('read-roll').addEventListener('click', () => run(async () => {
   const result = await api('/roll', { revision: settings.revision, printer: current }); roll = result.roll;
   $('roll').textContent = `${roll.sku} · ${roll.labelsRemaining} labels remaining · ${roll.media ? roll.media.name : 'no known format for this article'} · read ${new Date(roll.observedAt).toLocaleString()}`;
   $('use-roll').hidden = !roll.media || roll.media.key === printer().mediaKey;
+  await readings(); $('readings-box').open = true;
   message(roll.media && roll.media.key !== printer().mediaKey ? 'The loaded roll differs from the selected format.' : 'Roll read; release requested.');
 }));
 $('use-roll').addEventListener('click', () => run(async () => {

@@ -63,7 +63,10 @@ export function decodeRoll(status, sku) {
   const bay = ['unknown', 'open', 'no-media', 'misaligned', 'unknown-media', 'empty', 'critically-low', 'low', 'ok', 'jammed', 'unrecognized-media'][status[10] & 15] || 'unknown';
   if (head !== 'ok' || !['empty', 'critically-low', 'low', 'ok'].includes(bay)) throw failure('DYMO head or loaded roll is not in a supported state. Check the printer.');
   const media = labelMediaPresets.find(preset => preset.sku === article) || null;
-  return { sku: article, labelsRemaining: status.readUInt16LE(27), head, bay, errorId: 0, media, sizeSource: media ? 'sku-preset' : 'unknown' };
+  // The whole answers as hex: only the article and the counts are decoded, so the rest is kept to learn what else the
+  // roll's chip holds (the label size, for adding rolls by reading them).
+  return { sku: article, labelsRemaining: status.readUInt16LE(27), head, bay, errorId: 0, media, sizeSource: media ? 'sku-preset' : 'unknown',
+    raw: { status: status.toString('hex'), consumable: sku.toString('hex') } };
 }
 
 export async function readDymoRoll(config, { timeoutMs = 2500, retryDelayMs = 3000, graceMs = 200 } = {}) {
