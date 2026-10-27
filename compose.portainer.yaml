@@ -16,7 +16,7 @@ services:
       - queues:/queues:ro
     restart: unless-stopped
   api:
-    image: ${LABEL_API_IMAGE:-mrsnille/label-service:0.15.1}
+    image: ${LABEL_API_IMAGE:-mrsnille/label-service:0.15.2}
     depends_on: [cups]
     ports:
       # Publish on the LAN only; never forward this port from the internet.
