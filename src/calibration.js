@@ -68,7 +68,10 @@ export function evaluate(media, distances, options) {
     const maxDots = Math.floor(dotsSent(media, options) * scaleX * 0.99 / 8) * 8;
     return { shrink: true, scale: fixed(scaleX), scaleY: fixed(scaleY), maxDots };
   }
-  if (scaleX > 1.02 || scaleY < 0.98 || scaleY > 1.02) return { invalid: true, scale: fixed(scaleX), scaleY: fixed(scaleY) };
+  // The printer scales both ways alike, so the width decides; a die-cut label may be up to about a millimetre longer
+  // than its page (S0722540 measured 20.65 mm between the lines along it, 21.75 drawn), so the length only catches
+  // readings that cannot be right.
+  if (scaleX > 1.02 || scaleY < 0.93 || scaleY > 1.07) return { invalid: true, scale: fixed(scaleX), scaleY: fixed(scaleY) };
   // Where the drawing's edges land on paper, from the label's edges.
   const p0x = left - R, pWx = W - right + R, p0y = top - R, pHy = H - bottom + R;
   // Move the drawing by the mean error of its two edges.

@@ -1,5 +1,9 @@
 # History
 
+## 0.15.3 - 2026-10-27
+
+- The test print's reading along the label may be 7 % off the drawing instead of 2 %: the owner's first reading of the 57 × 32 mm roll on the wider page was true to size across (100 %) but 95 % along, because the die-cut label is longer than its 31.75 mm page (the frame itself measured 99 % on the 60 mm test page). The printer scales both ways alike, so the width decides. That reading now gives an offset of -0.8 mm across and 1 mm edges all round.
+
 ## 0.15.2 - 2026-10-27
 
 - Found the cause of the shrinking: the named page sizes of DYMO's lw5xl.ppd. A 60 mm custom page with the 57 × 32 mm test print on it printed at true size (frame 46.7 × 21.5 mm of 47.15 × 21.75), where the named w162h90 page had shrunk it to 89 %. DYMO Connect fills the label too. The roll width was never the limit; 0.15.0 and 0.15.1 gave the 57 mm roll a narrow image and a 7 mm right edge for nothing.

@@ -51,6 +51,8 @@ test('the calibration follows the owner\'s measurements of the shipping labels a
   assert.equal(dotsSent(small), 720);
   // True to size and 0.75 mm to the right, as the 60 mm test page printed: one test print calibrates it.
   assert.deepEqual(evaluate(small, { left: 5.75, right: 4.25, top: 5, bottom: 5 }), { scale: 1, scaleY: 1, offset: { x: -0.75, y: 0 }, margins: { left: 1, right: 1, top: 1, bottom: 1 } });
+  // The owner's reading on the wider page: true to size across; along, the die-cut label is longer than its page.
+  assert.deepEqual(evaluate(small, { top: 5.6, right: 4.1, bottom: 5.5, left: 5.7 }), { scale: 1, scaleY: 0.95, offset: { x: -0.8, y: -0.05 }, margins: { left: 1, right: 1, top: 1, bottom: 1 } });
   // A print that still shrinks gets a narrower image.
   const shrunk = evaluate(small, { left: 7.5, right: 7.55, top: 6.2, bottom: 6.25 });
   assert.deepEqual([shrunk.shrink, shrunk.scale, shrunk.maxDots], [true, 0.89, 632]);
