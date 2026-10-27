@@ -27,6 +27,7 @@
         <div class="actions"><button id="refresh" class="quiet">Check queue</button><button id="read-roll" class="quiet">Read loaded roll</button></div>
         <p id="roll" class="hint"></p>
         <button id="use-roll" class="quiet" hidden>Use the detected format</button>
+        <button id="add-detected" class="quiet" hidden>Add this roll</button>
         <p class="hint">Reading the roll briefly reserves the printer and releases it. Read it after every roll change, while nothing is printing. No label is fed.</p>
         <details id="readings-box">
           <summary>Roll chip readings (raw)</summary>
@@ -82,6 +83,7 @@
               <label>Width across the print head (mm)<input id="roll-width" type="number" min="10" max="110" step="0.1" required></label>
               <label>Length (mm)<input id="roll-height" type="number" min="10" max="400" step="0.1" required></label>
             </div>
+            <p id="roll-from-chip" class="hint" hidden></p>
             <p class="hint">Measure the label itself, not the backing. A roll wider than 62 mm prints only on the 5XL and 4XL.</p>
             <button>Add roll</button>
           </fieldset>

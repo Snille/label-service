@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.14.1, live together with Label Studio 0.12.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.14.2, with Label Studio 0.12.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -45,7 +45,7 @@ The environment creates the first printer (`PRINTER_MODEL`, `CUPS_QUEUE`, `PRINT
 
 ## Rolls
 
-The five formats below are built in. The admin page adds more (decision B11): the article number the roll reports (`S0722540` or seven digits), an optional name, and the label size in millimetres, the width across the print head first. An added roll prints through the PPD's custom page size (`custom_40x30mm_40x30mm`), as the shipping labels do; one wider than 62 mm is offered only to the wide models.
+The five formats below are built in. The admin page adds more (decision B11). Reading a roll that is not known yet shows Add this roll, which fills the form from the roll's chip: its article number and size (bytes 40-43 of the ESC U answer, checked on five rolls). The chip gives the whole label, so check the size with a ruler: a fold-over label such as S0722550 reports 27.9 mm across but prints on a 19 mm face. To add a roll by hand, give the article number the roll reports (`S0722540` or seven digits), an optional name, and the label size in millimetres, the width across the print head first. An added roll prints through the PPD's custom page size (`custom_40x30mm_40x30mm`), as the shipping labels do; one wider than 62 mm is offered only to the wide models.
 
 A new roll is `testing` until its test print is approved (decision B12). While it is testing, only the admin can print its test label: a ruler from the middle of each edge inwards, with a tick every 0.5 mm. Where the first tick shows on paper is the margin of that edge. The admin enters the four margins and approves that print; then clients see the roll and templates can use it. An object that reaches into a margin is a fit problem, like one outside the label. The built-in formats have no margins yet. A roll that a printer has loaded or a saved template names cannot be removed.
 

@@ -1,5 +1,11 @@
 # History
 
+## 0.14.2 - 2026-10-27
+
+- A roll reading decodes `chip`: the label length along the feed (bytes 40-41 of the ESC U answer) and the whole label's width across the head (42-43), in tenths of a millimetre, and the labels on a full roll (50-51). The owner read five known rolls (S0722520, S0722550, S0722540, S0722430, 2166659) with 0.14.1: all fit. S0722550 is a fold-over label; the chip gives the whole 27.9 mm, while it prints on a 19 mm face.
+- The admin page shows the chip's size with the reading, and for a roll it does not know, Add this roll fills the add form with the article number and that size, with a note to check it with a ruler. The roll starts as testing, as before.
+- Checked in Docker Desktop with a made-up roll reader (S0700001, 40 × 30 mm) on a made-up printer: the button filled the form and the roll was added as testing. Nothing was printed.
+
 ## 0.14.1 - 2026-10-27
 
 - A roll reading keeps the chip's whole answers (64 bytes from ESC U, 32 from ESC A) as hex in `raw`. The last 20 readings are stored in one settings row (no schema change) and listed by `GET /api/v1/roll/readings`; the admin page shows them as a hex dump with offsets. Only the article number and the label count are decoded; the readings are for finding where the chip keeps the label size, so a new roll could be added by reading it.

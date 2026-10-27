@@ -63,9 +63,13 @@ export function decodeRoll(status, sku) {
   const bay = ['unknown', 'open', 'no-media', 'misaligned', 'unknown-media', 'empty', 'critically-low', 'low', 'ok', 'jammed', 'unrecognized-media'][status[10] & 15] || 'unknown';
   if (head !== 'ok' || !['empty', 'critically-low', 'low', 'ok'].includes(bay)) throw failure('DYMO head or loaded roll is not in a supported state. Check the printer.');
   const media = labelMediaPresets.find(preset => preset.sku === article) || null;
-  // The whole answers as hex: only the article and the counts are decoded, so the rest is kept to learn what else the
-  // roll's chip holds (the label size, for adding rolls by reading them).
-  return { sku: article, labelsRemaining: status.readUInt16LE(27), head, bay, errorId: 0, media, sizeSource: media ? 'sku-preset' : 'unknown',
+  // The chip also holds the label's length along the feed (bytes 40-41) and the whole label's width across the head
+  // (42-43), in tenths of a millimetre, and the labels on a full roll (50-51); checked on five rolls. A fold-over label
+  // reports its whole width, so the printed face may be smaller: the size is a proposal for the admin to check.
+  const lengthMm = sku.readUInt16LE(40) / 10, widthMm = sku.readUInt16LE(42) / 10, labelsPerRoll = sku.readUInt16LE(50);
+  const chip = widthMm >= 10 && widthMm <= 110 && lengthMm >= 10 && lengthMm <= 400 ? { widthMm, lengthMm, ...(labelsPerRoll ? { labelsPerRoll } : {}) } : null;
+  // The whole answers are kept as hex, to learn more of what the chip holds.
+  return { sku: article, labelsRemaining: status.readUInt16LE(27), head, bay, errorId: 0, media, sizeSource: media ? 'sku-preset' : 'unknown', chip,
     raw: { status: status.toString('hex'), consumable: sku.toString('hex') } };
 }
 

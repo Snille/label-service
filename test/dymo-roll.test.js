@@ -37,6 +37,13 @@ test('roll reading waits for ownership and releases exactly its own lock on one 
   assert.deepEqual(f.commands, ['1b4101', '1b4101', '1b55', '1b51']); assert.equal(f.connections(), 1);
   assert.equal(result.labelsRemaining, 123); assert.equal(result.sku, 'S0722540'); assert.equal(result.media.key, 'w162h90'); assert.equal(result.sizeSource, 'sku-preset'); assert.equal(result.releaseRequested, true);
   assert.equal(result.raw.consumable, sku().toString('hex')); assert.equal(result.raw.status.length, 64);
+  assert.equal(result.chip, null);
+});
+test('the chip gives the label size and the labels on a full roll', () => {
+  // The answer of a real S0722520 (25 x 54 mm, 500 labels), read on the 5XL.
+  const real = Buffer.from('b6ca003c0e8bf53e533037323235323000000000' + '00ff040101000000' + '6b021e004800000000001000' + '1c02fe0000000000' + '3701f401763c3200010000003903d207', 'hex');
+  const s = status(); s.fill(0, 11, 23); s.write('S0722520', 11);
+  assert.deepEqual(decodeRoll(s, real).chip, { widthMm: 25.4, lengthMm: 54, labelsPerRoll: 500 });
 });
 test('failed lock attempts and active jobs never receive an end-job command', async t => {
   for (const active of [false, true]) {

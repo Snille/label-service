@@ -159,10 +159,12 @@ $('login').addEventListener('submit', event => { event.preventDefault(); key = $
 $('printer').addEventListener('change', () => run(async () => { current = $('printer').value; roll = null; $('roll').textContent = ''; $('use-roll').hidden = true; fill(); invalidate(); message(''); await status(); }));
 $('refresh').addEventListener('click', () => run(async () => { await status(); await jobs(); message(''); }));
 $('read-roll').addEventListener('click', () => run(async () => {
-  roll = null; $('use-roll').hidden = true;
+  roll = null; $('use-roll').hidden = true; $('add-detected').hidden = true;
   const result = await api('/roll', { revision: settings.revision, printer: current }); roll = result.roll;
-  $('roll').textContent = `${roll.sku} · ${roll.labelsRemaining} labels remaining · ${roll.media ? roll.media.name : 'no known format for this article'} · read ${new Date(roll.observedAt).toLocaleString()}`;
+  const size = roll.chip ? ` · the chip says ${roll.chip.widthMm} × ${roll.chip.lengthMm} mm${roll.chip.labelsPerRoll ? `, ${roll.chip.labelsPerRoll} labels per roll` : ''}` : '';
+  $('roll').textContent = `${roll.sku} · ${roll.labelsRemaining} labels remaining · ${roll.media ? roll.media.name : 'no known format for this article'}${size} · read ${new Date(roll.observedAt).toLocaleString()}`;
   $('use-roll').hidden = !roll.media || roll.media.key === printer().mediaKey;
+  $('add-detected').hidden = Boolean(roll.media);
   await readings(); $('readings-box').open = true;
   message(roll.media && roll.media.key !== printer().mediaKey ? 'The loaded roll differs from the selected format.' : 'Roll read; release requested.');
 }));
@@ -194,11 +196,21 @@ $('print').addEventListener('click', () => run(async () => {
   preview = null; message(`Submitted: ${job.state}${job.jobId ? `, CUPS job ${job.jobId}` : ''}. Check the physical label before printing again.`);
   await jobs();
 }));
+// An unknown roll: fill the add form from the chip. The admin checks the size and adds it; it starts as testing.
+$('add-detected').addEventListener('click', () => {
+  $('roll-sku').value = roll.sku; $('roll-name').value = '';
+  $('roll-width').value = roll.chip?.widthMm ?? ''; $('roll-height').value = roll.chip?.lengthMm ?? '';
+  $('roll-from-chip').hidden = false;
+  $('roll-from-chip').textContent = roll.chip
+    ? `Filled in from the roll's chip: ${roll.chip.widthMm} × ${roll.chip.lengthMm} mm. Check it with a ruler: the chip gives the whole label, and a fold-over label prints on a smaller face. Then add the roll and print its test label.`
+    : 'The chip gave no size for this roll. Measure the label and enter its width and length.';
+  $('roll-add').scrollIntoView({ block: 'center' }); (roll.chip ? $('roll-name') : $('roll-width')).focus();
+});
 $('roll-add').addEventListener('submit', event => { event.preventDefault(); run(async () => {
   const added = { sku: $('roll-sku').value.trim(), ...($('roll-name').value.trim() ? { name: $('roll-name').value.trim() } : {}),
     widthMm: Number($('roll-width').value), heightMm: Number($('roll-height').value), status: 'testing' };
   await save(config => { config.rolls = [...(config.rolls || []), added]; }, `Added ${added.sku}. Print its test label before anything else prints on it.`);
-  testing = customKey(added); rollPreview = null; $('roll-add').reset(); showRollTest();
+  testing = customKey(added); rollPreview = null; $('roll-add').reset(); $('roll-from-chip').hidden = true; $('add-detected').hidden = true; showRollTest();
 }); });
 $('roll-load').addEventListener('click', () => run(async () => {
   const media = settings.mediaPresets.find(p => p.key === testing);
