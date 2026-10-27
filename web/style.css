@@ -6,10 +6,14 @@
   :root { --bg: #f5f8f2; --panel: #ffffff; --text: #1d2a17; --muted: #5d6e55; --accent: #4f7a00; --line: #d6e0cf; --error: #b3261e; color-scheme: light; }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, sans-serif; }
 header { display: flex; align-items: baseline; gap: 1rem; padding: 1rem 16px; border-bottom: 1px solid var(--line); }
 h1 { margin: 0; font-size: 1.3rem; color: var(--accent); }
 h2 { margin: 0 0 .75rem; font-size: 1.05rem; }
+h3 { margin: 1rem 0 .5rem; font-size: .95rem; color: var(--accent); }
+td .actions { margin: 0; gap: .3rem; }
+td button { padding: .2rem .5rem; font-size: .8rem; }
 main { max-width: 900px; margin: 0 auto; padding: 1rem 16px 3rem; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
 label { display: grid; gap: .25rem; margin: .5rem 0; font-size: .9rem; color: var(--muted); }
@@ -26,6 +30,7 @@ dt { color: var(--muted); }
 dd { margin: 0; }
 figure { margin: .75rem 0; }
 figure img { display: block; max-width: 100%; max-height: 360px; background: #fff; border: 1px solid var(--line); }
+#roll-paper img { width: min(100%, 420px); max-height: none; }
 table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 th, td { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid var(--line); }
 #message { min-height: 1.5em; }

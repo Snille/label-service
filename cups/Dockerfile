@@ -32,6 +32,9 @@ RUN sed -i -e 's/^Listen localhost:631/Port 631/' -e 's/^WebInterface Yes/WebInt
   && sed -i '/^<Location \/>$/,/^<\/Location>$/ s/^  Order allow,deny$/  Order allow,deny\n  Allow all/' /etc/cups/cupsd.conf \
   && printf 'ServerAlias *\nDefaultEncryption Never\n' >> /etc/cups/cupsd.conf \
   && cupsd -t
+# The queue list from the api arrives in /queues, a volume shared with it. Whichever container makes the volume first,
+# the folder belongs to uid 1000 (node in the api image), so the api can write it.
+RUN mkdir -p /queues && chown 1000:1000 /queues
 COPY entrypoint.sh /usr/local/bin/cups-entrypoint
 RUN chmod 755 /usr/local/bin/cups-entrypoint
 EXPOSE 631

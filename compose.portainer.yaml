@@ -12,6 +12,8 @@ services:
     volumes:
       - cups-spool:/var/spool/cups
       - cups-cache:/var/cache/cups
+      # The queues of printers added on the admin page, written by the api.
+      - queues:/queues:ro
     restart: unless-stopped
   api:
     image: ${LABEL_API_IMAGE:-mrsnille/label-service:0.12.0}
@@ -32,8 +34,10 @@ services:
       PRINTER_PORT: ${PRINTER_PORT:-9100}
       # Date objects print in this time zone.
       TZ: ${TZ:-Europe/Stockholm}
+      LABEL_QUEUES_FILE: /queues/queues.txt
     volumes:
       - api-data:/data
+      - queues:/queues
     restart: unless-stopped
     stop_grace_period: 30s
   # Label Studio, the template designer (separate repository). It calls the API over the stack network with its own
@@ -51,3 +55,4 @@ volumes:
   cups-spool:
   cups-cache:
   api-data:
+  queues:

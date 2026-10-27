@@ -52,7 +52,10 @@ export function createApp({ store, env = process.env, service } = {}) {
   const clients = parseClients(env);
   const origins = (env.LABEL_ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
   service ||= new PrintService(store, { defaults: { serverUrl: env.CUPS_URL, queue: env.CUPS_QUEUE, printerHost: env.PRINTER_HOST, printerPort: env.PRINTER_PORT ? Number(env.PRINTER_PORT) : undefined,
-    printerModel: env.PRINTER_MODEL, printerName: env.PRINTER_NAME } });
+    printerModel: env.PRINTER_MODEL, printerName: env.PRINTER_NAME }, queuesFile: env.LABEL_QUEUES_FILE || '' });
+  // The cups container creates the queues of printers added on the admin page from this file; write it once at start, so a
+  // new or emptied shared volume gets it too.
+  try { service.writeQueues(); } catch (error) { console.error(`Could not write ${env.LABEL_QUEUES_FILE}: ${error.message}`); }
   const identify = req => {
     const header = req.headers['x-api-key'] || String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
     if (!header) return null;
@@ -110,6 +113,7 @@ export function createApp({ store, env = process.env, service } = {}) {
       if (path === '/api/v1/settings' && method === 'GET') { admin(); return json(service.view()); }
       if (path === '/api/v1/settings' && method === 'PUT') { admin(); return json(service.save(await body(req))); }
       if (path === '/api/v1/roll' && method === 'POST') { admin(); return json(await service.readRoll(await body(req))); }
+      if (path === '/api/v1/rolls/approve' && method === 'POST') { admin(); return json(service.approveRoll(await body(req), client)); }
       throw new InputError('Not found.', 404);
     } catch (error) {
       const status = error instanceof InputError ? error.status : 500;

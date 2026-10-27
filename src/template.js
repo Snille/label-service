@@ -1,7 +1,7 @@
 // Label template format v1. A template places objects on the readable label in millimetres or percentages of the
 // label and fills their text from named fields ({{name}}). The three original label kinds are built-in templates.
 import { InputError, object } from './validation.js';
-import { labelMediaPresets, labelSizeKeys, labelOrientations } from './label-media.js';
+import { labelMediaPresets, labelSizeKeys, labelOrientations, naturalOrientation } from './label-media.js';
 import { fontFamilies } from './fonts.js';
 
 export const templateId = /^[a-z0-9][a-z0-9-]{1,63}$/;
@@ -49,13 +49,14 @@ function font(item, name) {
 }
 const placeholders = text => [...text.matchAll(/\{\{\s*([^}]*?)\s*\}\}/g)].map(m => m[1]);
 
-export function validateTemplate(definition) {
+// media: the rolls a template may name (the approved ones); the built-in formats by default.
+export function validateTemplate(definition, media = labelMediaPresets) {
   only(definition, ['id', 'name', 'description', 'media', 'orientation', 'printDensity', 'fields', 'objects'], 'template');
   if (!templateId.test(definition.id || '') || builtInTemplates.some(t => t.id === definition.id)) throw fail('id must be 2-64 lower-case letters, digits or hyphens and not a built-in name.');
   if (!short(definition.name, 120) || !definition.name.trim()) throw fail('name is required (at most 120 characters).');
   if (definition.description !== undefined && !short(definition.description, 1000)) throw fail('description is at most 1000 characters.');
-  if (!Array.isArray(definition.media) || !definition.media.length || definition.media.some(k => k !== '*' && !labelMediaPresets.some(p => p.key === k))
-    || new Set(definition.media).size !== definition.media.length) throw fail(`media lists label formats (${labelMediaPresets.map(p => p.key).join(', ')}) or "*".`);
+  if (!Array.isArray(definition.media) || !definition.media.length || definition.media.some(k => k !== '*' && !media.some(p => p.key === k))
+    || new Set(definition.media).size !== definition.media.length) throw fail(`media lists label formats (${media.map(p => p.key).join(', ')}) or "*".`);
   if (definition.orientation !== undefined && !labelOrientations.includes(definition.orientation)) throw fail('orientation is portrait or landscape.');
   if (definition.printDensity !== undefined && !['light', 'medium', 'normal', 'dark'].includes(definition.printDensity)) throw fail('printDensity is light, medium, normal or dark.');
   only(definition.fields, Object.keys(definition.fields || {}), 'fields');
@@ -191,6 +192,33 @@ export const builtInTemplates = [
     fields: { lines: { type: 'lines', maxItems: 12 } },
     objects: [{ id: 'lines', type: 'stack', ...band(6, 78), items: '{{lines}}', size: 10, minSize: 6, valign: 'middle' }] }
 ];
+// The test print of a new roll (decision B12): a ruler from the middle of each edge inwards, with a tick every 0.5 mm
+// and a number every 2 mm. On paper each ruler starts where the printer starts to print, so the first tick that shows
+// gives that edge's margin. It is drawn in the roll's natural direction, and only an admin prints it.
+export function calibrationTemplate(media) {
+  // The drawing uses the exact page size in points; 57 x 32 mm is really 162 x 90 points.
+  const exact = pt => Math.floor(pt * 25.4 / 72 * 100) / 100, W = exact(media.widthPt), H = exact(media.heightPt), L = Math.min(6, Math.floor((Math.min(W, H) / 2 - 2) * 2) / 2);
+  const objects = [], ticks = Array.from({ length: L * 2 }, (_, i) => (i + 1) / 2), stroke = 0.15;
+  const tick = k => Number.isInteger(k) ? 1.6 : 0.8;
+  for (const [side, at] of [['top', k => k], ['bottom', k => H - k]]) {
+    objects.push({ id: `${side}_ruler`, type: 'line', x: W / 2, y: side === 'top' ? 0 : H - L, w: 0, h: L, stroke });
+    for (const k of ticks) {
+      objects.push({ type: 'line', x: W / 2, y: at(k), w: tick(k), h: 0, stroke });
+      if (k % 2 === 0) objects.push({ type: 'text', x: W / 2 - 3.4, y: at(k) - 1.1, w: 3, h: 2.2, text: String(k), size: 4.5, align: 'right', valign: 'middle' });
+    }
+  }
+  for (const [side, at] of [['left', k => k], ['right', k => W - k]]) {
+    objects.push({ id: `${side}_ruler`, type: 'line', x: side === 'left' ? 0 : W - L, y: H / 2, w: L, h: 0, stroke });
+    for (const k of ticks) {
+      objects.push({ type: 'line', x: at(k), y: H / 2, w: 0, h: tick(k), stroke });
+      if (k % 2 === 0) objects.push({ type: 'text', x: at(k) - 1.5, y: H / 2 - 2.6, w: 3, h: 2.2, text: String(k), size: 4.5, align: 'center', valign: 'middle' });
+    }
+  }
+  // The roll's article and size in the middle, where there is room for it.
+  const free = { x: L + 1, y: L + 1, w: W - 2 * L - 2, h: H - 2 * L - 2 };
+  if (free.w >= 12 && free.h >= 6) objects.push({ id: 'roll', type: 'text', ...free, text: `${media.sku}\n${media.widthMm} × ${media.heightMm} mm`, size: 8, minSize: 4, bold: true, align: 'center', valign: 'middle' });
+  return { id: 'calibration', name: 'Roll test print', media: ['*'], orientation: naturalOrientation(media), fields: {}, objects };
+}
 export const builtInDescriptions = {
   box: { title: 'text, max 240', description: 'text, max 2000, may be empty', location: 'text, max 240' },
   location: { location: 'text, max 240; printed large' },

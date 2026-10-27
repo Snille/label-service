@@ -14,6 +14,8 @@ services:
       # Keeps CUPS job numbers and job history across container updates.
       - cups-spool:/var/spool/cups
       - cups-cache:/var/cache/cups
+      # The queues of printers added on the admin page, written by the api.
+      - queues:/queues:ro
     restart: unless-stopped
   api:
     image: label-service:local
@@ -34,11 +36,14 @@ services:
       PRINTER_PORT: ${PRINTER_PORT:-9100}
       # Date objects print in this time zone.
       TZ: ${TZ:-Europe/Stockholm}
+      LABEL_QUEUES_FILE: /queues/queues.txt
     volumes:
       - api-data:/data
+      - queues:/queues
     restart: unless-stopped
     stop_grace_period: 30s
 volumes:
   cups-spool:
   cups-cache:
   api-data:
+  queues:

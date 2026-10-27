@@ -208,8 +208,11 @@ function layoutShape(item, id, canvas) {
 export function labelPage(media, orientation) {
   const rotated = (orientation || naturalOrientation(media)) !== naturalOrientation(media);
   const canvas = rotated ? { widthPt: media.heightPt, heightPt: media.widthPt } : { widthPt: media.widthPt, heightPt: media.heightPt };
+  // Margins are measured on the label as it reads in its natural direction. The quarter turn of pageSvg puts the
+  // canvas's left side on the page's bottom, its right on the top, its top on the left and its bottom on the right.
+  const m = media.margins, margins = m && (rotated ? { top: m.left, right: m.top, bottom: m.right, left: m.bottom } : { ...m });
   return { key: media.key, sku: media.sku, name: media.name, widthMm: media.widthMm, heightMm: media.heightMm, ...canvas,
-    pageWidthPt: media.widthPt, pageHeightPt: media.heightPt, rotated, orientation: rotated ? orientation : naturalOrientation(media) };
+    pageWidthPt: media.widthPt, pageHeightPt: media.heightPt, rotated, orientation: rotated ? orientation : naturalOrientation(media), ...(margins ? { margins } : {}) };
 }
 
 // A rotated object turns about the centre of its box: rotate is degrees clockwise, as in SVG.
@@ -237,6 +240,16 @@ function outside(item, id, canvas) {
   if (Math.min(...ys) < -edge) sides.push('top');
   if (Math.max(...ys) > canvas.heightPt + edge) sides.push('bottom');
   if (sides.length) canvas.problems.push({ object: id, message: `"${id}" reaches outside the label on the ${sides.join(' and ')} side. The label is ${mm(canvas.widthPt)} × ${mm(canvas.heightPt)} mm.` });
+  return sides.length > 0;
+}
+// The edges a roll does not print, measured with its test print (decision B12). An object that reaches into them would
+// be cut on paper.
+function unprinted(item, id, canvas) {
+  const m = canvas.margins; if (!m) return;
+  const points = corners(item, canvas), xs = points.map(p => p[0]), ys = points.map(p => p[1]), edge = 0.01;
+  const sides = [['left', Math.min(...xs) < mmToPt(m.left) - edge], ['right', Math.max(...xs) > canvas.widthPt - mmToPt(m.right) + edge],
+    ['top', Math.min(...ys) < mmToPt(m.top) - edge], ['bottom', Math.max(...ys) > canvas.heightPt - mmToPt(m.bottom) + edge]].filter(([side, hit]) => hit && m[side] > 0);
+  if (sides.length) canvas.problems.push({ object: id, message: `"${id}" reaches into the edge that this roll does not print: ${sides.map(([side]) => `${m[side]} mm on the ${side}`).join(' and ')}.` });
 }
 
 // picture(id) returns a decoded uploaded picture ({width, height, rgba}) or null.
@@ -252,7 +265,7 @@ export function layoutTemplate(definition, input, { media, style, orientation, n
       : item.type === 'barcode' ? layoutBarcode(item, id, values, style, layout, layout)
       : item.type === 'date' ? date() : item.type === 'image' ? layoutImage(item, id, layout, layout, picture) : layoutShape(item, id, layout));
     const t = turn(item, layout); if (t) layout.items.at(-1).rotate = t;
-    outside(item, id, layout);
+    if (!outside(item, id, layout)) unprinted(item, id, layout);
   }
   layout.warnings = [...new Set(layout.problems.map(p => p.object))];
   return layout;

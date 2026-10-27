@@ -1,5 +1,17 @@
 # History
 
+## 0.13.0 - 2026-10-27
+
+Phase 3: rolls and printers from the admin page (decisions B11 and B12).
+
+- Rolls: the admin page adds a roll with its article number (as the roll reports it), an optional name and its size in millimetres. It is saved in the settings (`rolls`, no new database schema) and prints through the PPD's custom page size (`custom_WxHmm_WxHmm`), as the shipping labels do. A roll wider than 62 mm is offered only to the 5XL and 4XL. Every printer gets text sizes for it. The roll reader finds added rolls by their article number.
+- A new roll is `testing`: it prints nothing but its test label, clients do not see it in `/formats`, and templates cannot name it. The test label (kind `calibration`, admin only) has a ruler from the middle of each edge inwards with a tick every 0.5 mm. The admin reads the margins on paper and approves with `POST /api/v1/rolls/approve` `{revision, key, requestId, margins}`; the request id must be a test print of that roll that reached CUPS. Approval cannot be written through `PUT /settings`. Approving again with a new test print measures the roll anew.
+- Margins: an object that reaches into the edge a roll does not print is a fit problem ("reaches into the edge that this roll does not print: 1 mm on the left"), in both text directions. The layout answer has `margins` in the canvas frame. The built-in formats have no margins until they are measured.
+- A roll that a printer has loaded or a saved template names cannot be removed. Print job records check the roll key by its form, so jobs on a removed roll stay valid.
+- Printers: the admin page adds a printer with a name, model and network address (`socket://host:port`) or USB address, removes one and chooses the default. A printer with a `device` gets its own CUPS queue: the api writes the list to `LABEL_QUEUES_FILE` on a volume shared with the cups container, and the cups entrypoint applies it within five seconds with `lpadmin` (and removes queues no longer listed). The queue from the environment stays as it was. Without `LABEL_QUEUES_FILE` such printers are refused.
+- The admin page makes its request ids with `crypto.getRandomValues`, because `crypto.randomUUID` is missing on plain http pages; saved settings are confirmed even when a queue cannot be reached.
+- Checked in Docker Desktop with a made-up roll (S0700001, 40 × 30 mm) and a made-up LabelWriter 550 Turbo at `printer-test.invalid`, without any real printer: the queue was created, the test label previewed and sent to CUPS, the margins approved, Label Studio showed the edges and warned about an object in them, and removing the printer removed its queue. Nothing was printed on paper.
+
 ## 0.12.0 - 2026-10-27
 
 Phase 3: a PDF page as a picture, for shipping labels, and more barcodes.

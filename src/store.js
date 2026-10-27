@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, existsSync, openSync, closeSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { InputError, validatePrinting, validatePrintJob } from './validation.js';
-import { defaultLabelStyles, printerModel } from './label-media.js';
+import { defaultLabelStyles, printerModel, allMedia } from './label-media.js';
 
 const schema = `
 CREATE TABLE settings (id TEXT PRIMARY KEY NOT NULL, record TEXT NOT NULL CHECK(json_valid(record))) STRICT;
@@ -68,8 +68,8 @@ export class Store {
   printing() {
     const row = this.db.prepare("SELECT record FROM settings WHERE id='printing'").get(); if (!row) return null;
     // Settings saved before a format was added get that format's defaults; formats no longer offered are dropped.
-    const saved = migratePrinting(JSON.parse(row.record)), defaults = defaultLabelStyles();
-    return { ...saved, printers: saved.printers.map(printer => ({ ...printer, model: printerModel(printer.model) ? printer.model : 'lw5xl',
+    const saved = migratePrinting(JSON.parse(row.record)), defaults = defaultLabelStyles(allMedia(saved));
+    return { ...saved, rolls: saved.rolls || [], printers: saved.printers.map(printer => ({ ...printer, model: printerModel(printer.model) ? printer.model : 'lw5xl',
       styles: Object.fromEntries(Object.entries(defaults).map(([key, style]) => [key, printer.styles?.[key] || style])) })) };
   }
   writePrinting(config) {

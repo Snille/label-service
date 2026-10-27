@@ -1,9 +1,10 @@
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
-import { InputError, object, validatePrinting } from './validation.js';
+import { writeFileSync, renameSync } from 'node:fs';
+import { InputError, object, validatePrinting, validateMargins } from './validation.js';
 import { CupsPrinter } from './ipp.js';
-import { defaultLabelStyles, labelMediaPresets, labelTemplates, layoutTemplate, testLabel, testLines } from './labels.js';
-import { printerModels, printerModel, mediaForModel } from './label-media.js';
-import { builtInTemplates, validateTemplate, templateId, assetId } from './template.js';
+import { defaultLabelStyles, labelTemplates, layoutTemplate, testLabel, testLines } from './labels.js';
+import { printerModels, printerModel, mediaForModel, allMedia, customMediaKey } from './label-media.js';
+import { builtInTemplates, validateTemplate, templateId, assetId, calibrationTemplate } from './template.js';
 import { decodePng, isPng, encodeRgba } from './png.js';
 import { isPdf, pdfPage } from './pdf.js';
 import { fontFamilies } from './fonts.js';
@@ -31,6 +32,10 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const who = client => typeof client === 'string' ? { name: client, role: client === 'admin' ? 'designer' : 'client' } : client;
 const canDraft = client => ['designer', 'drafter'].includes(client.role);
 const wasPublished = record => record.status === 'published' || Boolean(record.publishedAt);
+// Templates may name only approved rolls; a roll that is still testing prints nothing but its test print.
+const approvedMedia = config => allMedia(config).filter(p => p.status === 'approved');
+const approval = roll => JSON.stringify([roll.status, roll.margins && [roll.margins.top, roll.margins.right, roll.margins.bottom, roll.margins.left], roll.test?.requestId, roll.test?.approvedAt, roll.test?.approvedBy]);
+const sameRoll = (a, b) => approval(a) === approval(b);
 const summary = record => ({ id: record.id, name: record.name, builtIn: false, version: record.version, status: record.status, media: record.definition.media,
   description: record.definition.description, fields: record.definition.fields, createdAt: record.createdAt, createdBy: record.createdBy });
 
@@ -38,8 +43,8 @@ const summary = record => ({ id: record.id, name: record.name, builtIn: false, v
 export class PrintService {
   // settleMs: a DYMO printer still feeds and cuts after CUPS reports a job completed, and its driver refuses the next job
   // (com.dymo.busy-error) if that job arrives too soon. Each printer therefore rests this long after its last job.
-  constructor(store, { defaults = {}, printerFactory = config => new CupsPrinter(config), rollReader = readDymoRoll, converter = rsvgConvert, pdfReader = pdfPage, settleMs = 10000, queueWaitMs = 120000 } = {}) {
-    this.store = store; this.defaults = defaults; this.printerFactory = printerFactory; this.rollReader = rollReader; this.converter = converter; this.pdfReader = pdfReader;
+  constructor(store, { defaults = {}, printerFactory = config => new CupsPrinter(config), rollReader = readDymoRoll, converter = rsvgConvert, pdfReader = pdfPage, settleMs = 10000, queueWaitMs = 120000, queuesFile = '' } = {}) {
+    this.store = store; this.defaults = defaults; this.queuesFile = queuesFile; this.printerFactory = printerFactory; this.rollReader = rollReader; this.converter = converter; this.pdfReader = pdfReader;
     this.settleMs = settleMs; this.queueWaitMs = queueWaitMs;
     this.previews = new Map(); this.pictures = new Map(); this.busy = new Set(); this.lastRollCheck = new Map(); this.lastPrint = new Map();
   }
@@ -60,7 +65,7 @@ export class PrintService {
     const saved = this.store.printing(); if (saved) return saved;
     const d = this.defaults, model = printerModel(d.printerModel) || printerModels[0];
     const id = (d.queue || 'dymo').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'dymo';
-    return { serverUrl: d.serverUrl || '', defaultPrinter: id, batchLimit: 50, printers: [{
+    return { serverUrl: d.serverUrl || '', defaultPrinter: id, batchLimit: 50, rolls: [], printers: [{
       id, name: d.printerName || `DYMO ${model.name}`, model: model.key, enabled: Boolean(d.serverUrl && d.queue), queue: d.queue || '',
       mediaKey: mediaForModel(model.key)[0].key, styles: defaultLabelStyles(),
       rollReader: { enabled: Boolean(d.printerHost) && model.rollReader, host: d.printerHost || '', port: d.printerPort || 9100 } }] };
@@ -73,13 +78,16 @@ export class PrintService {
   }
   view() {
     const config = this.config(), printer = this.printerConfig(config);
-    return { config, revision: revisionOf(config), media: labelMediaPresets.find(p => p.key === printer.mediaKey), mediaPresets: labelMediaPresets,
-      models: printerModels.map(m => ({ ...m, media: mediaForModel(m.key).map(p => p.key) })), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies };
+    const media = allMedia(config);
+    return { config, revision: revisionOf(config), media: media.find(p => p.key === printer.mediaKey), mediaPresets: media,
+      models: printerModels.map(m => ({ ...m, media: mediaForModel(m.key, media).map(p => p.key) })), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies,
+      queuesFile: Boolean(this.queuesFile) };
   }
   formats(id) {
     const config = this.config(), printer = this.printerConfig(config, id);
-    return { printer: { id: printer.id, name: printer.name, model: printer.model }, mediaKey: printer.mediaKey, media: labelMediaPresets.find(p => p.key === printer.mediaKey),
-      style: printer.styles[printer.mediaKey], mediaPresets: mediaForModel(printer.model), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies, batchLimit: config.batchLimit,
+    // Clients see the approved rolls; the loaded roll is named even while it is testing, so they can say why nothing prints.
+    return { printer: { id: printer.id, name: printer.name, model: printer.model }, mediaKey: printer.mediaKey, media: allMedia(config).find(p => p.key === printer.mediaKey),
+      style: printer.styles[printer.mediaKey], mediaPresets: mediaForModel(printer.model, approvedMedia(config)), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies, batchLimit: config.batchLimit,
       printers: config.printers.map(p => ({ id: p.id, name: p.name, model: p.model, enabled: p.enabled, mediaKey: p.mediaKey, default: p.id === config.defaultPrinter })) };
   }
   assertRevision(revision) { if (revision !== this.revision()) throw new InputError('Print settings changed. Create a new preview before printing.', 409); }
@@ -87,8 +95,56 @@ export class PrintService {
     object(input);
     if (Object.keys(input).some(k => !['revision', 'config'].includes(k))) throw new InputError('Unsupported print setting.');
     return this.store.transaction(() => {
-      this.assertRevision(input.revision); this.store.writePrinting(validatePrinting(input.config)); return this.view();
+      this.assertRevision(input.revision);
+      const before = this.config(), config = object(input.config, 'printing');
+      // A new roll starts as testing; only an approved test print makes it approved (approveRoll). Its name and article may change.
+      if (config.rolls !== undefined && !Array.isArray(config.rolls)) throw new InputError('rolls is a list.');
+      for (const roll of config.rolls || []) {
+        object(roll, 'roll');
+        const key = customMediaKey(roll.widthMm, roll.heightMm), old = before.rolls.find(r => customMediaKey(r.widthMm, r.heightMm) === key);
+        if (old ? !sameRoll(roll, old) : roll.status !== 'testing' || roll.margins !== undefined || roll.test !== undefined) {
+          throw new InputError('A new roll starts as testing, and it is approved with its test print on the admin page.');
+        }
+      }
+      // A removed roll must not be loaded in a printer (checked below) or named by a saved template.
+      const kept = new Set(allMedia(config).map(p => p.key)), removed = allMedia(before).filter(p => p.custom && !kept.has(p.key)).map(p => p.key);
+      const users = removed.length ? [...new Set(this.store.allTemplateVersions().filter(t => t.definition.media.some(k => removed.includes(k))).map(t => t.id))] : [];
+      if (users.length) throw new InputError(`The roll is used by the templates ${users.join(', ')}. Change or delete those templates first.`, 409);
+      // Each printer keeps text sizes for every roll: an added roll gets its defaults, a removed one is dropped.
+      const media = allMedia(config);
+      if (Array.isArray(config.printers)) for (const p of config.printers) {
+        if (p && typeof p === 'object' && p.styles && typeof p.styles === 'object') p.styles = Object.fromEntries(media.map(m => [m.key, p.styles[m.key] || { ...m.style }]));
+      }
+      validatePrinting(config);
+      if (config.printers.some(p => p.device) && !this.queuesFile) throw new InputError('This service cannot create CUPS queues. Set LABEL_QUEUES_FILE and share its folder with the cups container.', 409);
+      this.store.writePrinting(config); this.writeQueues(config);
+      return this.view();
     });
+  }
+  // Approves a roll's test print (decision B12): the request id of a test print of that roll that reached CUPS, and the
+  // margins read from the paper. Approving again with a new test print measures the roll anew.
+  approveRoll(input, client) {
+    client = who(client); object(input);
+    if (Object.keys(input).some(k => !['revision', 'key', 'requestId', 'margins'].includes(k))) throw new InputError('Send { revision, key, requestId, margins }.');
+    return this.store.transaction(() => {
+      this.assertRevision(input.revision);
+      const config = structuredClone(this.config()), roll = config.rolls.find(r => customMediaKey(r.widthMm, r.heightMm) === input.key);
+      if (!roll) throw new InputError('Only a roll added on the admin page is approved here.', 404);
+      const job = typeof input.requestId === 'string' ? this.store.printJob(input.requestId) : null;
+      if (!job || job.kind !== 'calibration' || job.mediaKey !== input.key) throw new InputError('Print the test label of this roll first, then approve that print.', 409);
+      if (job.state !== 'submitted') throw new InputError(`The test print is ${job.state}; it did not reach the printer. Print it again.`, 409);
+      Object.assign(roll, { status: 'approved', margins: validateMargins(structuredClone(input.margins)), test: { requestId: job.id, approvedAt: new Date().toISOString(), approvedBy: client.name } });
+      this.store.writePrinting(validatePrinting(config));
+      return this.view();
+    });
+  }
+  // The CUPS queues of printers added on the admin page, one line each ("queue model device"), written whole for the cups
+  // container, which creates, changes and removes those queues. The first printer's queue comes from the environment.
+  writeQueues(config = this.config()) {
+    if (!this.queuesFile) return;
+    const lines = config.printers.filter(p => p.device).map(p => `${p.queue} ${p.model} ${p.device}\n`).join('');
+    writeFileSync(`${this.queuesFile}.tmp`, `# Written by label-service from the printers on its admin page.\n${lines}`);
+    renameSync(`${this.queuesFile}.tmp`, this.queuesFile);
   }
   printer(config, printer) {
     if (!printer.enabled) throw new InputError(`Printing on ${printer.name} is disabled. Save and enable its CUPS queue first.`, 409);
@@ -112,6 +168,8 @@ export class PrintService {
       const queue = await this.printer(config, printer).status(); this.assertRevision(input.revision);
       if (queue.state !== 'idle' || queue.queuedJobs !== 0) throw new InputError('Read the roll only while the CUPS queue is idle and empty.', 409);
       const roll = await this.rollReader(printer.rollReader); this.assertRevision(input.revision);
+      // The roll reader knows the built-in formats; added rolls are found by their article number too.
+      roll.media = allMedia(config).find(p => p.sku === roll.sku) || null; roll.sizeSource = roll.media ? 'sku-preset' : 'unknown';
       return { roll, printer: printer.id, revision: input.revision };
     } finally { this.busy.delete(printer.id); }
   }
@@ -146,7 +204,7 @@ export class PrintService {
     client = who(client); object(input);
     if (!canDraft(client)) throw new InputError('This operation requires a designer key.', 403);
     if (Object.keys(input).some(k => k !== 'definition')) throw new InputError('Send { definition }.');
-    const definition = validateTemplate(structuredClone(input.definition));
+    const definition = validateTemplate(structuredClone(input.definition), approvedMedia(this.config()));
     return this.store.addTemplateVersion({ id: definition.id, status: 'draft', name: definition.name, definition, createdAt: new Date().toISOString(), createdBy: client.name });
   }
   setTemplateStatus(id, version, status, client) {
@@ -243,7 +301,7 @@ export class PrintService {
     if (input.template !== undefined && input.kind !== undefined) throw new InputError('Send either kind or template.');
     if (input.template && typeof input.template === 'object') {
       if (!canDraft(client)) throw new InputError('Only designer keys may preview unsaved templates.', 403);
-      return { definition: validateTemplate(structuredClone(input.template)), ref: { id: input.template.id, version: 0, status: 'unsaved' } };
+      return { definition: validateTemplate(structuredClone(input.template), approvedMedia(this.config())), ref: { id: input.template.id, version: 0, status: 'unsaved' } };
     }
     const id = input.template ?? input.kind ?? 'box';
     if (typeof id !== 'string' || (input.version !== undefined && !Number.isInteger(input.version))) throw new InputError('Unsupported label type.');
@@ -269,7 +327,8 @@ export class PrintService {
     }
     if (input.reference !== undefined && (typeof input.reference !== 'string' || !input.reference.trim() || input.reference.length > 200)) throw new InputError('reference must be a short string.');
     const config = this.config(), revision = revisionOf(config), printer = this.printerConfig(config, input.printer);
-    const media = labelMediaPresets.find(p => p.key === printer.mediaKey);
+    const media = allMedia(config).find(p => p.key === printer.mediaKey);
+    if (!media) throw new InputError(`${printer.name} has a roll that is no longer known. Choose its loaded roll on the admin page.`, 409);
     // A client may state the format it expects; the loaded roll decides, so a mismatch is refused rather than printed on the wrong labels.
     if (input.mediaKey !== undefined && input.mediaKey !== printer.mediaKey) throw new InputError(`The selected label format is ${media.name}. Change the roll and format first.`, 409);
     // A batch: rows of field values become one print document with one label per row, sent as one job (decision B8 as
@@ -282,7 +341,13 @@ export class PrintService {
       if (!input.rows.length || input.rows.length > config.batchLimit) throw new InputError(`A batch holds 1-${config.batchLimit} labels.`);
       rows = input.rows.map((row, index) => object(row, `rows[${index}]`));
     }
-    const { definition, ref, builtIn } = this.resolve(input, client);
+    // The test print of a roll is drawn for the loaded roll, edge to edge, and only the admin prints it. Nothing else
+    // prints on a roll that is still testing.
+    const calibration = input.kind === 'calibration';
+    if (calibration && (client.name !== 'admin' || rows || input.fields !== undefined)) throw new InputError('Only the admin prints the test label of a roll, from the admin page.', 403);
+    if (!calibration && media.status !== 'approved') throw new InputError(`The roll ${media.name} is new and not approved yet. Print and approve its test label on the admin page first.`, 409);
+    const { definition, ref, builtIn } = calibration
+      ? { definition: calibrationTemplate(media), ref: { id: 'calibration', version: 1, status: 'published' }, builtIn: true } : this.resolve(input, client);
     if (!definition.media.includes('*') && !definition.media.includes(printer.mediaKey)) throw new InputError(`The template "${definition.name}" is not made for ${media.name}. Load a matching roll first.`, 409);
     let fields;
     if (input.test === true) {
@@ -291,7 +356,9 @@ export class PrintService {
     } else if (!rows) fields = object(input.fields, 'fields');
     // A client may choose the text direction for this label; otherwise the template's or the format's saved direction applies.
     const style = printer.styles[printer.mediaKey];
-    const lay = values => layoutTemplate(definition, values, { media, style, orientation: input.orientation, picture: id => this.picture(id) });
+    // The test print measures the edges, so it ignores margins measured before and keeps the roll's natural direction.
+    const lay = values => layoutTemplate(definition, values, calibration ? { media: { ...media, margins: undefined }, style, orientation: definition.orientation }
+      : { media, style, orientation: input.orientation, picture: id => this.picture(id) });
     const layouts = rows ? rows.map((row, index) => {
       try { return lay(row); } catch (error) { if (error instanceof InputError) error.message = `Row ${index + 1}: ${error.message}`; throw error; }
     }) : [lay(fields)];

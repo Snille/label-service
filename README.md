@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.12.0, live together with Label Studio 0.10.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14 (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.13.0. Live: 0.12.0 with Label Studio 0.10.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -12,7 +12,7 @@ Reading the loaded roll briefly reserves the printer. Two programs that each tal
 
 | Container | Purpose | Port |
 | --- | --- | --- |
-| `cups` | CUPS 2.4 on Ubuntu 24.04 with the official DYMO LW5xx driver (`raster2dymolw_v2`, built from a pinned, checksum-verified commit) for the LabelWriter 550, 550 Turbo and 5XL, and the CUPS DYMO driver (`printer-driver-dymo`) for the LabelWriter 450 and 4XL. One queue, created from the environment at start. | 631, stack network only |
+| `cups` | CUPS 2.4 on Ubuntu 24.04 with the official DYMO LW5xx driver (`raster2dymolw_v2`, built from a pinned, checksum-verified commit) for the LabelWriter 550, 550 Turbo and 5XL, and the CUPS DYMO driver (`printer-driver-dymo`) for the LabelWriter 450 and 4XL. One queue from the environment at start, plus a queue for each printer added on the admin page. | 631, stack network only |
 | `api` | Node 24 HTTP API. SQLite journal, settings and templates in `/data`. `rsvg-convert` (librsvg) renders the PDF for CUPS and PNG previews. | 3230 |
 
 CUPS sends jobs straight to the printer (`socket://PRINTER_HOST:9100`, or `PRINTER_URI` for a USB printer passed into the container). The roll reader in `api` also connects to the printer, only when an admin asks for it.
@@ -39,7 +39,13 @@ Settings hold one CUPS server and one or more printers. Each printer has an id, 
 | LabelWriter 450 | CUPS DYMO | the four narrow formats | no | USB |
 | LabelWriter 4XL | CUPS DYMO | all five | no | USB |
 
-The environment creates the first printer (`PRINTER_MODEL`, `CUPS_QUEUE`, `PRINTER_HOST`). Adding more printers through the admin page, and their CUPS queues, is planned for a later version; the settings model already supports them.
+The environment creates the first printer (`PRINTER_MODEL`, `CUPS_QUEUE`, `PRINTER_HOST`). More printers are added on the admin page with a name, a model and an address: `socket://host:port` on the LAN, or a `usb://` address for a USB printer passed into the cups container. Such a printer has a `device`; the api writes the list of these queues (`queue model device`, one per line) to `LABEL_QUEUES_FILE` on a volume shared with the cups container, and the cups container creates, changes and removes those queues within five seconds. It only reads that file; it never asks a printer anything. Removing a printer removes its queue and any jobs still in it, so check that the queue is empty first.
+
+## Rolls
+
+The five formats below are built in. The admin page adds more (decision B11): the article number the roll reports (`S0722540` or seven digits), an optional name, and the label size in millimetres, the width across the print head first. An added roll prints through the PPD's custom page size (`custom_40x30mm_40x30mm`), as the shipping labels do; one wider than 62 mm is offered only to the wide models.
+
+A new roll is `testing` until its test print is approved (decision B12). While it is testing, only the admin can print its test label: a ruler from the middle of each edge inwards, with a tick every 0.5 mm. Where the first tick shows on paper is the margin of that edge. The admin enters the four margins and approves that print; then clients see the roll and templates can use it. An object that reaches into a margin is a fit problem, like one outside the label. The built-in formats have no margins yet. A roll that a printer has loaded or a saved template names cannot be removed.
 
 ## Run locally (Docker Desktop)
 
@@ -65,6 +71,7 @@ The API listens on `127.0.0.1:3230`. The development keys above are for local us
 | `PRINTER_URI` | CUPS only: a device URI instead of `PRINTER_HOST`, for example a USB printer. |
 | `CUPS_QUEUE` | Queue name, default `DYMO_5XL`. |
 | `LABEL_DB` | SQLite file, `/data/label-service.sqlite` in Docker. |
+| `LABEL_QUEUES_FILE` | Where the api writes the queues of printers added on the admin page, `/queues/queues.txt` in the stack files (a volume shared with the cups container, which reads the same path). Without it, such printers are refused. |
 | `RSVG_CONVERT` | Path to `rsvg-convert`, if it is not on `PATH`. |
 | `TZ` | Time zone for date objects, `Europe/Stockholm` in the stack files. |
 
@@ -72,7 +79,7 @@ The environment sets the first settings. After an admin saves settings through t
 
 ## Admin page
 
-Open the service in a browser and enter the admin key. The page shows the CUPS queue of the chosen printer, reads the loaded roll (`Use the detected format` selects it), sets the selected format and each format's text direction and sizes, sets the batch limit, previews and prints one test label, and lists recent jobs. The key stays in the tab's memory only.
+Open the service in a browser and enter the admin key. The page shows the CUPS queue of the chosen printer, reads the loaded roll (`Use the detected format` selects it), sets the selected format and each format's text direction and sizes, sets the batch limit, adds and removes rolls and prints and approves their test prints, adds and removes printers, previews and prints one test label, and lists recent jobs. The key stays in the tab's memory only.
 
 ## API
 
@@ -95,11 +102,13 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `POST /api/v1/previews` | client | See below → `{token, expiresAt, kind, template?, printer, layout, svg, png?, printable, warnings}`. Nothing prints. |
 | `POST /api/v1/jobs` | client | `{token, requestId}` (UUIDs) → the journal record. Prints one copy. |
 | `GET /api/v1/jobs`, `GET /api/v1/jobs/<requestId>` | client (own) / admin (all) | Journal records, with live CUPS job state for one job. |
-| `GET`, `PUT /api/v1/settings` | admin | `{revision, config}`: `serverUrl`, `defaultPrinter`, `batchLimit` and `printers`. |
+| `GET`, `PUT /api/v1/settings` | admin | `{revision, config}`: `serverUrl`, `defaultPrinter`, `batchLimit`, `rolls` and `printers`. A new roll is saved as `testing`; only the approve call makes it approved. |
 | `POST /api/v1/roll` | admin | `{revision, printer?}`. Reads the loaded roll once; needs an idle, empty queue. |
+| `POST /api/v1/rolls/approve` | admin | `{revision, key, requestId, margins: {top, right, bottom, left}}`: approves a roll's test print (a `calibration` job on that roll that reached CUPS) with the margins read on paper, 0-10 mm. |
 
 Preview request: `{kind? | template?, version?, fields | test: true | rows, check?, printer?, mediaKey?, orientation?: 'portrait'|'landscape', reference?, include?: ['png']}`.
 
+- `kind: "calibration"` with `test: true` is the test print of the loaded roll, for the admin only.
 - `kind` is a built-in template: `box` (`title`, `description`, `location`), `location` (only `location`, printed large) or `lines` (`{lines: [{text, bold?, size?}]}`, 1-12 lines, 6-16 points, shrunk together until they fit; an empty `text` is a spacer).
 - `template` is a saved template id (the latest published version unless `version` is given), or, for designers and drafters, a whole unsaved definition.
 - `warnings` lists what stops printing, per object: `{object, message}`, for example `"recipient" needs 4 rows, but 3 fit at 7 pt`. `layout.lines` keeps the original row list (text, centre x, baseline y, size, bold, width) for clients that draw their own preview.
@@ -148,7 +157,7 @@ A template places objects on the readable label. Lengths are millimetres or perc
 - Each printer rests 10 seconds after a job and waits for an idle, empty CUPS queue before the next job: the DYMO driver refuses a job that arrives while the printer is still finishing the previous label (`com.dymo.busy-error`). A submission that waits longer than two minutes is refused with 429, never printed later.
 - CUPS accepts any media name in `Validate-Job` (it even accepts sizes that do not exist), so the service's own format list is the real guard.
 
-Formats: S0722540 (57 × 32 mm), S0722550 (19 × 51 mm), S0722520 (25 × 54 mm), S0722430 (54 × 101 mm) and shipping labels 2166659 (102 × 210 mm, a CUPS custom page size because `lw5xl.ppd` has no named size for it; wide models only). On 19 × 51 mm, a landscape box label does not fit with the default sizes; use a location label or smaller sizes. Each format keeps its own text sizes and text direction per printer (landscape along the long side, portrait across it).
+Built-in formats: S0722540 (57 × 32 mm), S0722550 (19 × 51 mm), S0722520 (25 × 54 mm), S0722430 (54 × 101 mm) and shipping labels 2166659 (102 × 210 mm, a CUPS custom page size because `lw5xl.ppd` has no named size for it; wide models only). On 19 × 51 mm, a landscape box label does not fit with the default sizes; use a location label or smaller sizes. Each format keeps its own text sizes and text direction per printer (landscape along the long side, portrait across it).
 
 ## Portainer
 
@@ -158,7 +167,7 @@ Published images (Docker Hub, `linux/amd64`): `mrsnille/label-service` and `mrsn
 - `PRINTER_HOST`: the printer's LAN address. Optional `PRINTER_MODEL` (default `lw5xl`) and `PRINTER_NAME`.
 - Optional: `LABEL_BIND`, `LABEL_PORT`, `CUPS_QUEUE`, `LABEL_ALLOWED_ORIGINS`, or `LABEL_API_IMAGE` / `LABEL_CUPS_IMAGE` to pin a digest.
 
-Publish port 3230 on the LAN only. Keep the volumes on local storage. To update, raise the image tags (or re-pull `latest`) and recreate the stack.
+Publish port 3230 on the LAN only. Keep the volumes on local storage. The `queues` volume (0.13.0) holds only the queue list of added printers; both images create its folder for the api user, so a new volume works whichever container starts first. To update, raise the image tags (or re-pull `latest`) and recreate the stack.
 
 Release: bump `VERSION`, add a history entry, run the checks, then build and push both images:
 

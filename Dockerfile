@@ -19,7 +19,8 @@ COPY --from=test --chown=node:node /app/fonts ./fonts
 COPY --from=test --chown=node:node /app/src ./src
 COPY --from=test --chown=node:node /app/web ./web
 COPY --from=test --chown=node:node /app/package.json /app/VERSION ./
-RUN mkdir /data && chown node:node /data
+# /queues: the shared folder where the api writes the queue list for the cups container (LABEL_QUEUES_FILE).
+RUN mkdir /data /queues && chown node:node /data /queues
 USER node
 VOLUME /data
 EXPOSE 3230
