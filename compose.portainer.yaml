@@ -2,7 +2,7 @@
 name: label-service
 services:
   cups:
-    image: ${LABEL_CUPS_IMAGE:-mrsnille/label-service-cups:0.12.0}
+    image: ${LABEL_CUPS_IMAGE:-mrsnille/label-service-cups:0.14.0}
     init: true
     environment:
       CUPS_QUEUE: ${CUPS_QUEUE:-DYMO_5XL}
@@ -16,7 +16,7 @@ services:
       - queues:/queues:ro
     restart: unless-stopped
   api:
-    image: ${LABEL_API_IMAGE:-mrsnille/label-service:0.12.0}
+    image: ${LABEL_API_IMAGE:-mrsnille/label-service:0.14.0}
     depends_on: [cups]
     ports:
       # Publish on the LAN only; never forward this port from the internet.
@@ -43,7 +43,7 @@ services:
   # Label Studio, the template designer (separate repository). It calls the API over the stack network with its own
   # client key, so add studio=<key> to LABEL_CLIENT_KEYS and studio=designer to LABEL_CLIENT_ROLES.
   studio:
-    image: ${LABEL_STUDIO_IMAGE:-mrsnille/label-studio:0.10.0}
+    image: ${LABEL_STUDIO_IMAGE:-mrsnille/label-studio:0.12.0}
     depends_on: [api]
     ports:
       # Publish on the LAN only; never forward this port from the internet.
