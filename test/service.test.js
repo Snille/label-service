@@ -48,6 +48,22 @@ test('settings saved by version 0.4 become the default printer and keep their st
   assert.equal((await preview(service)).layout.sku, '2166659');
 });
 
+test('a check says whether a label fits without a token or a print document, and clients see the batch limit', async t => {
+  const { service } = setup(t);
+  let pdfs = 0; service.converter = async (svg, format) => { if (format === 'pdf') pdfs++; return fakeConverter(svg, format); };
+  for (let i = 0; i < 120; i++) {
+    const c = await preview(service, 'storagesystem', { kind: 'location', fields: { location: `IVAR-A-H2-P${i}` }, check: true });
+    assert.equal(c.check, true); assert.equal(c.token, undefined); assert.equal(c.printable, true);
+  }
+  assert.equal(service.previews.size, 0); assert.equal(pdfs, 0);
+  const tight = await preview(service, 'storagesystem', { fields: { title: 'x', description: 'long text '.repeat(60), location: 'A' }, check: true, include: ['png'] });
+  assert.equal(tight.printable, false); assert.equal(tight.warnings[0].object, 'description'); assert.ok(tight.png);
+  await assert.rejects(preview(service, 'storagesystem', { test: true, check: 'yes' }), /Unsupported/);
+  assert.equal(service.formats().batchLimit, 50);
+  update(service, c => { c.batchLimit = 20; });
+  assert.equal(service.formats().batchLimit, 20);
+});
+
 test('print requests are single-use, durably idempotent and owned by the client that previewed them', async t => {
   const { store, state, service } = setup(t), p = await preview(service, 'storagesystem', { kind: 'location', fields: { location: 'IVAR-A-H2-P1-A' }, reference: 'box:42' });
   assert.equal(p.printable, true); assert.match(p.svg, /^<svg/); assert.deepEqual(p.warnings, []); assert.equal(p.printer, 'dymo-5xl');

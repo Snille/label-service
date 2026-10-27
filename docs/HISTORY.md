@@ -1,5 +1,12 @@
 # History
 
+## 0.10.0 - 2026-10-27
+
+For batch printing in Label Studio (phase 3, decision B8: one row, one label, one job).
+
+- A preview with `check: true` answers whether a label fits, with the same warnings, layout and optional PNG, but makes no print document and no token. A batch can check every row first without filling the store of open previews (at most 100) and without the PDF conversion.
+- `GET /api/v1/formats` includes `batchLimit`, so clients know how many labels one batch may hold.
+
 ## 0.9.2 - 2026-10-27
 
 - An object that reaches outside the readable canvas is now a problem for that object ("reaches outside the label on the right side"), so the template does not print. Before, it was cut on paper with no warning; the first MCP design test found it with a text box 16 mm past the right edge.

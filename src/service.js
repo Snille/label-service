@@ -78,7 +78,7 @@ export class PrintService {
   formats(id) {
     const config = this.config(), printer = this.printerConfig(config, id);
     return { printer: { id: printer.id, name: printer.name, model: printer.model }, mediaKey: printer.mediaKey, media: labelMediaPresets.find(p => p.key === printer.mediaKey),
-      style: printer.styles[printer.mediaKey], mediaPresets: mediaForModel(printer.model), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies,
+      style: printer.styles[printer.mediaKey], mediaPresets: mediaForModel(printer.model), kinds: builtInTemplates.map(t => t.id), fonts: fontFamilies, batchLimit: config.batchLimit,
       printers: config.printers.map(p => ({ id: p.id, name: p.name, model: p.model, enabled: p.enabled, mediaKey: p.mediaKey, default: p.id === config.defaultPrinter })) };
   }
   assertRevision(revision) { if (revision !== this.revision()) throw new InputError('Print settings changed. Create a new preview before printing.', 409); }
@@ -242,8 +242,9 @@ export class PrintService {
 
   async preview(input, client) {
     client = who(client); object(input);
-    if (Object.keys(input).some(k => !['kind', 'template', 'version', 'test', 'fields', 'mediaKey', 'orientation', 'reference', 'printer', 'include'].includes(k))
-      || (input.test !== undefined && typeof input.test !== 'boolean') || (input.orientation !== undefined && !['portrait', 'landscape'].includes(input.orientation))
+    if (Object.keys(input).some(k => !['kind', 'template', 'version', 'test', 'check', 'fields', 'mediaKey', 'orientation', 'reference', 'printer', 'include'].includes(k))
+      || (input.test !== undefined && typeof input.test !== 'boolean') || (input.check !== undefined && typeof input.check !== 'boolean')
+      || (input.orientation !== undefined && !['portrait', 'landscape'].includes(input.orientation))
       || (input.include !== undefined && (!Array.isArray(input.include) || input.include.some(i => i !== 'png')))) {
       throw new InputError('Unsupported label preview request.');
     }
@@ -269,15 +270,19 @@ export class PrintService {
     const allowed = builtIn || ref.status === 'published' || client.role === 'designer';
     const problems = [...layout.problems, ...(allowed ? [] : [{ object: 'template', message: 'Only published templates can be printed with this key. Publish the template first.' }])];
     const printable = problems.length === 0, svg = layoutSvg(layout);
-    const document = printable ? await this.converter(pageSvg(layout), 'pdf') : null;
     const png = input.include?.includes('png') ? (await this.converter(svg, 'png')).toString('base64') : undefined;
+    const kind = builtIn ? ref.id : 'template', template = builtIn ? undefined : { id: ref.id, version: ref.version };
+    const answer = { kind, ...(template ? { template: { ...template, status: ref.status } } : {}), printer: printer.id, fields, layout, driver, svg, ...(png ? { png } : {}), printable, warnings: problems };
+    // A check answers whether the label fits without a print document or a token, so a batch can check every row first
+    // without filling the preview store.
+    if (input.check === true) return { check: true, ...answer };
+    const document = printable ? await this.converter(pageSvg(layout), 'pdf') : null;
     const token = randomUUID(), now = Date.now();
     for (const [id, p] of this.previews) if (p.expires <= now) this.previews.delete(id);
     if (this.previews.size >= 100) throw new InputError('Too many label previews. Wait for an older preview to expire.', 429);
-    const expires = now + 10 * 60 * 1000, kind = builtIn ? ref.id : 'template', template = builtIn ? undefined : { id: ref.id, version: ref.version };
+    const expires = now + 10 * 60 * 1000;
     this.previews.set(token, { config, revision, printer: printer.id, kind, template, client: client.name, reference: input.reference, layout, driver, printable, document, expires });
-    return { token, expiresAt: new Date(expires).toISOString(), kind, ...(template ? { template: { ...template, status: ref.status } } : {}), printer: printer.id,
-      fields, layout, driver, svg, ...(png ? { png } : {}), printable, warnings: problems };
+    return { token, expiresAt: new Date(expires).toISOString(), ...answer };
   }
   assertPreview(preview) {
     this.assertRevision(preview.revision);

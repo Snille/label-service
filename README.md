@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.9.1, live together with Label Studio 0.6.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.10.0, live together with Label Studio 0.7.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token for batch printing (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -81,7 +81,7 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | Method and path | Who | Purpose |
 | --- | --- | --- |
 | `GET /healthz` | anyone | Liveness and version. |
-| `GET /api/v1/formats[?printer=]` | client | The printer's selected format (the loaded roll), its text style, the formats its model supports, the printers, the fonts. |
+| `GET /api/v1/formats[?printer=]` | client | The printer's selected format (the loaded roll), its text style, the formats its model supports, the printers, the fonts and `batchLimit` (most labels a client should send in one batch). |
 | `GET /api/v1/status[?printer=]` | client | CUPS queue state from IPP attributes. Never contacts the printer. |
 | `GET /api/v1/templates` | client | Built-in kinds and saved templates (published ones; designers and drafters also see the latest draft, `archived` when every version is archived and `everPublished`). |
 | `GET /api/v1/templates/<id>[?version=n]` | client | One template with its definition. Plain clients see published versions only. |
@@ -98,12 +98,13 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `GET`, `PUT /api/v1/settings` | admin | `{revision, config}`: `serverUrl`, `defaultPrinter`, `batchLimit` and `printers`. |
 | `POST /api/v1/roll` | admin | `{revision, printer?}`. Reads the loaded roll once; needs an idle, empty queue. |
 
-Preview request: `{kind? | template?, version?, fields | test: true, printer?, mediaKey?, orientation?: 'portrait'|'landscape', reference?, include?: ['png']}`.
+Preview request: `{kind? | template?, version?, fields | test: true, check?, printer?, mediaKey?, orientation?: 'portrait'|'landscape', reference?, include?: ['png']}`.
 
 - `kind` is a built-in template: `box` (`title`, `description`, `location`), `location` (only `location`, printed large) or `lines` (`{lines: [{text, bold?, size?}]}`, 1-12 lines, 6-16 points, shrunk together until they fit; an empty `text` is a spacer).
 - `template` is a saved template id (the latest published version unless `version` is given), or, for designers and drafters, a whole unsaved definition.
 - `warnings` lists what stops printing, per object: `{object, message}`, for example `"recipient" needs 4 rows, but 3 fit at 7 pt`. `layout.lines` keeps the original row list (text, centre x, baseline y, size, bold, width) for clients that draw their own preview.
 - `include: ['png']` adds a 300 dpi PNG of the label (base64).
+- `check: true` answers the same without a token or a print document (`{check: true, ...}`), so a batch client can check every row before printing without filling the store of open previews (at most 100). Each row then gets a normal preview right before it prints.
 
 `orientation` sets the text direction for this one label; without it, the template's direction or the selected format's saved direction applies.
 
