@@ -1,5 +1,9 @@
 # History
 
+## 0.15.1 - 2026-10-27
+
+- The test print is a frame of straight lines, each with its outer edge 5 mm inside its edge of the label, instead of short rulers with small ticks: a calliper is laid against a long straight line far more easily (the owner's suggestion). The lines stay visible on the narrow page of a shrinking roll, which cuts about 3-4 mm at the sides. The calibration is the same, with 5 mm instead of the 6 mm mark; a roll keeps its calibration, and the next test print is read against it.
+
 ## 0.15.0 - 2026-10-27
 
 Labels print at true size and in place: each roll is calibrated with its test print.

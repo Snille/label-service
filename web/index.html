@@ -60,16 +60,16 @@
         <table><thead><tr><th>Roll</th><th>Article</th><th>Size</th><th>Status</th><th>Edges that do not print</th><th></th></tr></thead><tbody id="rolls"></tbody></table>
         <div id="roll-test" hidden>
           <h3 id="roll-test-title"></h3>
-          <p class="hint">A new roll prints nothing but its test label until you approve it (decisions B11 and B12); a built-in roll prints as usual while you measure it, and before approving you see which templates reach into the new margins. Load the roll in the printer, choose it as the loaded roll and print the test label. Each edge has a ruler from the middle inwards with a tick every 0.5 mm. With a calliper, measure on each side, as the preview shows the label, from the edge of the label to the ruler's <span id="roll-mark">6</span> mm mark. If the printer shrank the print, the next test print uses a narrower image and you measure once more; then the image is moved into place, and every edge keeps at least 1 mm.</p>
+          <p class="hint">A new roll prints nothing but its test label until you approve it (decisions B11 and B12); a built-in roll prints as usual while you measure it, and before approving you see which templates reach into the new margins. Load the roll in the printer, choose it as the loaded roll and print the test label. It has a frame of straight lines, each <span id="roll-mark">5</span> mm inside its edge. With a calliper, measure on each side, as the preview shows the label, from the edge of the label to the outer edge of its line. If the printer shrank the print, the next test print uses a narrower image and you measure once more; then the image is moved into place, and every edge keeps at least 1 mm.</p>
           <div class="actions"><button id="roll-load" class="quiet">Use as the loaded roll of this printer</button><button id="roll-preview" class="quiet">Prepare test label</button><button id="roll-print" disabled>Print the test label</button></div>
           <figure id="roll-paper"></figure>
           <form id="roll-approve">
             <p id="roll-job" class="hint"></p>
             <div class="grid">
-              <label>Top edge to mark (mm)<input id="distance-top" type="number" min="0" max="30" step="0.05" required></label>
-              <label>Right edge to mark (mm)<input id="distance-right" type="number" min="0" max="30" step="0.05" required></label>
-              <label>Bottom edge to mark (mm)<input id="distance-bottom" type="number" min="0" max="30" step="0.05" required></label>
-              <label>Left edge to mark (mm)<input id="distance-left" type="number" min="0" max="30" step="0.05" required></label>
+              <label>Top: edge to line (mm)<input id="distance-top" type="number" min="0" max="30" step="0.05" required></label>
+              <label>Right: edge to line (mm)<input id="distance-right" type="number" min="0" max="30" step="0.05" required></label>
+              <label>Bottom: edge to line (mm)<input id="distance-bottom" type="number" min="0" max="30" step="0.05" required></label>
+              <label>Left: edge to line (mm)<input id="distance-left" type="number" min="0" max="30" step="0.05" required></label>
             </div>
             <button id="roll-approve-button" disabled>Approve the test print</button>
           </form>

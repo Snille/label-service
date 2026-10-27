@@ -3,6 +3,7 @@
 import { InputError, object } from './validation.js';
 import { labelMediaPresets, labelSizeKeys, labelOrientations, naturalOrientation } from './label-media.js';
 import { fontFamilies, styleOf } from './fonts.js';
+import { calibrationMark } from './calibration.js';
 
 export const templateId = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const fieldName = /^[a-zA-Z][a-zA-Z0-9_]{0,39}$/;
@@ -196,31 +197,19 @@ export const builtInTemplates = [
     fields: { lines: { type: 'lines', maxItems: 12 } },
     objects: [{ id: 'lines', type: 'stack', ...band(6, 78), items: '{{lines}}', size: 10, minSize: 6, valign: 'middle' }] }
 ];
-// The test print of a new roll (decision B12): a ruler from the middle of each edge inwards, with a tick every 0.5 mm
-// and a number every 2 mm. On paper each ruler starts where the printer starts to print, so the first tick that shows
-// gives that edge's margin. It is drawn in the roll's natural direction, and only an admin prints it.
+// The test print of a roll (decision B12): a frame of straight lines, each with its outer edge exactly R mm inside its
+// edge of the label (5 mm, less on very small rolls; calibrationMark). With a calliper the admin measures from each
+// edge of the label to its line; src/calibration.js turns the four distances into scale, offset and edges. It is drawn
+// in the roll's natural direction, and only an admin prints it.
 export function calibrationTemplate(media) {
   // The drawing uses the exact page size in points; 57 x 32 mm is really 162 x 90 points.
-  const exact = pt => Math.floor(pt * 25.4 / 72 * 100) / 100, W = exact(media.widthPt), H = exact(media.heightPt), L = Math.min(6, Math.floor((Math.min(W, H) / 2 - 2) * 2) / 2);
-  const objects = [], ticks = Array.from({ length: L * 2 }, (_, i) => (i + 1) / 2), stroke = 0.15;
-  const tick = k => Number.isInteger(k) ? 1.6 : 0.8;
-  for (const [side, at] of [['top', k => k], ['bottom', k => H - k]]) {
-    objects.push({ id: `${side}_ruler`, type: 'line', x: W / 2, y: side === 'top' ? 0 : H - L, w: 0, h: L, stroke });
-    for (const k of ticks) {
-      objects.push({ type: 'line', x: W / 2, y: at(k), w: tick(k), h: 0, stroke });
-      if (k % 2 === 0) objects.push({ type: 'text', x: W / 2 - 3.4, y: at(k) - 1.1, w: 3, h: 2.2, text: String(k), size: 4.5, align: 'right', valign: 'middle' });
-    }
-  }
-  for (const [side, at] of [['left', k => k], ['right', k => W - k]]) {
-    objects.push({ id: `${side}_ruler`, type: 'line', x: side === 'left' ? 0 : W - L, y: H / 2, w: L, h: 0, stroke });
-    for (const k of ticks) {
-      objects.push({ type: 'line', x: at(k), y: H / 2, w: 0, h: tick(k), stroke });
-      if (k % 2 === 0) objects.push({ type: 'text', x: at(k) - 1.5, y: H / 2 - 2.6, w: 3, h: 2.2, text: String(k), size: 4.5, align: 'center', valign: 'middle' });
-    }
-  }
+  const exact = pt => Math.floor(pt * 25.4 / 72 * 100) / 100, W = exact(media.widthPt), H = exact(media.heightPt), R = calibrationMark(media), t = 0.3;
+  const line = (id, x, y, w, h) => ({ id, type: 'rect', x, y, w, h, stroke: 0, fill: 'black' });
+  const objects = [line('top_line', R, R, W - 2 * R, t), line('bottom_line', R, H - R - t, W - 2 * R, t),
+    line('left_line', R, R, t, H - 2 * R), line('right_line', W - R - t, R, t, H - 2 * R)];
   // The roll's article and size in the middle, where there is room for it.
-  const free = { x: L + 1, y: L + 1, w: W - 2 * L - 2, h: H - 2 * L - 2 };
-  if (free.w >= 12 && free.h >= 6) objects.push({ id: 'roll', type: 'text', ...free, text: `${media.sku}\n${media.widthMm} × ${media.heightMm} mm`, size: 8, minSize: 4, bold: true, align: 'center', valign: 'middle' });
+  const free = { x: R + 1, y: R + 1, w: W - 2 * R - 2, h: H - 2 * R - 2 };
+  if (free.w >= 12 && free.h >= 6) objects.push({ id: 'roll', type: 'text', ...free, text: `${media.sku}\n${media.widthMm} × ${media.heightMm} mm\n${R} mm to each line`, size: 8, minSize: 4, bold: true, align: 'center', valign: 'middle' });
   return { id: 'calibration', name: 'Roll test print', media: ['*'], orientation: naturalOrientation(media), fields: {}, objects };
 }
 // The built-in labels keep 3 mm at the sides, or more on a roll whose measured edges are wider (margins in the

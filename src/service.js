@@ -130,7 +130,7 @@ export class PrintService {
     });
   }
   // Approves a roll's test print (decision B12): the request id of a test print of that roll that reached CUPS, and
-  // distances { left, right, top, bottom }, from each edge of the label to its ruler's reference mark, measured on the
+  // distances { left, right, top, bottom }, from each edge of the label to its frame line on the test print, measured on the
   // paper. They give the printer's scale, the image's offset and the edges that do not print (src/calibration.js).
   // If the printer shrank the print, only the narrower image width is saved, and the roll needs another test print.
   // A built-in format keeps its calibration in config.measured. check: true saves nothing and answers the result and
@@ -142,7 +142,7 @@ export class PrintService {
     }
     const d = object(input.distances, 'distances');
     if (Object.keys(d).sort().join(',') !== 'bottom,left,right,top' || Object.values(d).some(v => typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 30)) {
-      throw new InputError('distances are left, right, top and bottom: 0-30 mm from the label\'s edge to the ruler\'s mark.');
+      throw new InputError('distances are left, right, top and bottom: 0-30 mm from the label\'s edge to its line on the test print.');
     }
     return this.store.transaction(() => {
       this.assertRevision(input.revision);
@@ -156,7 +156,7 @@ export class PrintService {
       const media = allMedia(config).find(p => p.key === input.key), stored = builtIn ? config.measured[input.key]?.test : roll.test;
       if (stored && (stored.requestId === job.id || job.createdAt < stored.approvedAt)) throw new InputError('The roll was measured with this or a later test print. Print the test label again.', 409);
       const result = evaluate(media, d), test = { requestId: job.id, approvedAt: new Date().toISOString(), approvedBy: client.name };
-      if (result.invalid) throw new InputError(`These distances give a scale of ${Math.round(result.scale * 100)} % across and ${Math.round(result.scaleY * 100)} % along the label. Measure again from each edge to the ${calibrationMark(media)} mm mark.`);
+      if (result.invalid) throw new InputError(`These distances give a scale of ${Math.round(result.scale * 100)} % across and ${Math.round(result.scaleY * 100)} % along the label. Measure again from each edge of the label to its line, ${calibrationMark(media)} mm inside.`);
       const calibration = result.shrink ? { maxDots: result.maxDots, test } : { ...(media.maxDots ? { maxDots: media.maxDots } : {}), offset: result.offset, margins: result.margins, test };
       if (builtIn) config.measured = { ...config.measured, [input.key]: calibration };
       else { for (const k of ['margins', 'offset', 'maxDots']) delete roll[k]; Object.assign(roll, calibration, { status: result.shrink ? 'testing' : 'approved' }); }
@@ -470,7 +470,7 @@ export class PrintService {
     // A client may choose the text direction for this label; otherwise the template's or the format's saved direction applies.
     const style = printer.styles[printer.mediaKey];
     // The test print measures the edges, so it ignores margins measured before and keeps the roll's natural direction.
-    // Every page is printed with the roll's calibration, the test print too, so its rulers are read against it.
+    // Every page is printed with the roll's calibration, the test print too, so its frame is read against it.
     const page = printPage(media), orientation = calibration ? definition.orientation : input.orientation;
     const shaped = builtIn && !calibration ? fitBuiltIn(definition, labelPage(media, orientation || definition.orientation || style.orientation).margins) : definition;
     const lay = values => Object.assign(layoutTemplate(shaped, values, calibration ? { media: { ...media, margins: undefined }, style, orientation }

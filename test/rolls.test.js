@@ -13,9 +13,9 @@ import { evaluate, printPage, dotsSent } from '../src/calibration.js';
 // Made-up test data: the roll and the printer do not exist.
 const roll = { sku: 'S0700001', name: 'Test roll', widthMm: 40, heightMm: 30, status: 'testing' };
 const key = 'custom_40x30mm_40x30mm';
-// From each edge of the label to the ruler's 6 mm mark, as on a test print that is true to size but lands 1.5 mm to
-// the right and 2 mm low: the left and top rulers start inside the label, the right and bottom ones run over its edge.
-const distances = { left: 7.5, right: 4.5, top: 8, bottom: 4 };
+// From each edge of the label to its frame line (5 mm inside), as on a test print that is true to size but lands
+// 1.5 mm to the right and 2 mm low.
+const distances = { left: 6.5, right: 3.5, top: 7, bottom: 3 };
 const margins = { left: 1.5, right: 1, top: 2, bottom: 1 };
 const update = (service, change) => { const config = structuredClone(service.config()); change(config); return service.save({ revision: service.revision(), config }); };
 const designer = { name: 'studio', role: 'designer' };
@@ -27,32 +27,32 @@ async function testPrint(service) {
   return service.submit({ token: p.token, requestId: randomUUID() }, 'admin');
 }
 
-test('the test label fits every roll edge to edge, with a ruler on each side', () => {
+test('the test label fits every roll, with a frame line inside each edge', () => {
   for (const media of [...labelMediaPresets, customMedia(roll), customMedia({ ...roll, widthMm: 10, heightMm: 10 }), customMedia({ ...roll, widthMm: 110, heightMm: 400 })]) {
     const definition = calibrationTemplate(media), layout = layoutTemplate(definition, {}, { media, style: media.style });
     assert.deepEqual(layout.problems, [], media.key);
-    for (const side of ['top', 'right', 'bottom', 'left']) assert.ok(definition.objects.some(o => o.id === `${side}_ruler`));
+    for (const side of ['top', 'right', 'bottom', 'left']) assert.ok(definition.objects.some(o => o.id === `${side}_line`));
   }
 });
 
 test('the calibration follows the owner\'s measurements of the shipping labels and the 57 x 32 mm roll', () => {
-  // 2166659, true to size: left -1.3, right +1.6, top +0.4, bottom -1.0 as read on the rulers, that is from each edge
-  // to the 6 mm mark 7.3, 4.4, 5.6 and 7.0 mm.
+  // 2166659, true to size: left -1.3, right +1.6, top +0.4, bottom -1.0 as read on the old rulers, that is from each
+  // edge to the frame line 6.3, 3.4, 4.6 and 6.0 mm.
   const shipping = labelMediaPresets.find(p => p.sku === '2166659');
-  assert.deepEqual(evaluate(shipping, { left: 7.3, right: 4.4, top: 5.6, bottom: 7 }), { scale: 1, scaleY: 1, offset: { x: -1.45, y: 0.7 }, margins: { left: 1.3, right: 1, top: 1, bottom: 1 } });
-  // S0722540, shrunk to about 88 %: 40.1 mm between the 6 mm marks across, 17.3 mm along (45.15 and 19.75 drawn).
+  assert.deepEqual(evaluate(shipping, { left: 6.3, right: 3.4, top: 4.6, bottom: 6 }), { scale: 1, scaleY: 1, offset: { x: -1.45, y: 0.7 }, margins: { left: 1.3, right: 1, top: 1, bottom: 1 } });
+  // S0722540, shrunk to about 89 %: the frame lines 42.1 mm apart across and 19.3 mm along (47.15 and 21.75 drawn).
   const small = labelMediaPresets.find(p => p.sku === 'S0722540');
   assert.equal(dotsSent(small), 656);
-  const shrunk = evaluate(small, { left: 8.5, right: 8.55, top: 7.2, bottom: 7.25 });
+  const shrunk = evaluate(small, { left: 7.5, right: 7.55, top: 6.2, bottom: 6.25 });
   assert.deepEqual([shrunk.shrink, shrunk.scale, shrunk.maxDots], [true, 0.89, 576]);
   // The next test print goes on a page as wide as the printer takes, with the label centred on it.
   const narrow = { ...small, maxDots: shrunk.maxDots };
   assert.deepEqual(printPage(narrow), { key: 'custom_48.77x31.75mm_48.77x31.75mm', widthPt: 138.24, heightPt: 90, dx: -11.88, dy: 0, widthMm: 48.77, heightMm: 31.75, custom: true });
   assert.equal(dotsSent(narrow), 576);
   // Read on that print, true to size: the page covers 48.8 mm of the label, so the sides keep about 4 mm.
-  const fixed = evaluate(narrow, { left: 6.4, right: 5.45, top: 6, bottom: 6 });
+  const fixed = evaluate(narrow, { left: 5.4, right: 4.45, top: 5, bottom: 5 });
   assert.deepEqual(fixed, { scale: 1, scaleY: 1, offset: { x: -0.45, y: 0 }, margins: { left: 4.6, right: 3.7, top: 1, bottom: 1 } });
-  assert.match(String(evaluate(small, { left: 2, right: 2, top: 6, bottom: 6 }).invalid), /true/);
+  assert.match(String(evaluate(small, { left: 2, right: 2, top: 5, bottom: 5 }).invalid), /true/);
 });
 
 test('a new roll prints only its test label until its test print is approved', async t => {
@@ -78,7 +78,7 @@ test('a new roll prints only its test label until its test print is approved', a
   const job = await testPrint(service);
   assert.deepEqual([job.kind, job.mediaKey, job.state, job.printMedia], ['calibration', key, 'submitted', undefined]);
   assert.throws(() => approve(service, key, job.id, { ...distances, top: 40 }), /0-30 mm/);
-  assert.throws(() => approve(service, key, job.id, { ...distances, left: 1, right: 1 }), /scale of 136 %/);
+  assert.throws(() => approve(service, key, job.id, { ...distances, left: 1, right: 1 }), /scale of 127 %/);
   const approved = approve(service, key, job.id, distances);
   const saved = approved.config.rolls[0];
   assert.deepEqual([saved.status, saved.margins, saved.offset, saved.test.requestId, saved.test.approvedBy], ['approved', margins, { x: -1.5, y: -2 }, job.id, 'admin']);
@@ -102,12 +102,12 @@ test('a built-in format that the printer shrinks gets a narrower image first, th
   service.saveTemplate({ definition: edge }, designer);
   const first = await testPrint(service);
   assert.equal(first.mediaKey, 'w162h90');
-  const shrunk = approve(service, 'w162h90', first.id, { left: 8.5, right: 8.55, top: 7.2, bottom: 7.25 });
+  const shrunk = approve(service, 'w162h90', first.id, { left: 7.5, right: 7.55, top: 6.2, bottom: 6.25 });
   assert.deepEqual([shrunk.result.shrink, shrunk.config.measured.w162h90.maxDots, shrunk.config.measured.w162h90.margins], [true, 576, undefined]);
   // The roll keeps printing, now on the narrower page; the next test print goes there too.
   const second = await testPrint(service);
   assert.equal(second.printMedia, 'custom_48.77x31.75mm_48.77x31.75mm');
-  const read = { left: 6.4, right: 5.45, top: 6, bottom: 6 };
+  const read = { left: 5.4, right: 4.45, top: 5, bottom: 5 };
   // The built-in labels move in from the sides; the saved frame, 2 mm from the left, would stop printing.
   const check = approve(service, 'w162h90', second.id, read, true);
   assert.deepEqual(check.affected.map(a => [a.id, a.objects]), [['edge-57', ['frame']]]);
