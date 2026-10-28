@@ -31,6 +31,9 @@ dd { margin: 0; }
 figure { margin: .75rem 0; }
 figure img { display: block; max-width: 100%; max-height: 360px; background: #fff; border: 1px solid var(--line); }
 details summary { cursor: pointer; color: var(--accent); margin: .5rem 0; }
+details.panel > summary { margin: 0; color: var(--text); }
+details.panel > summary h2 { display: inline; margin: 0; }
+details.panel[open] > summary { margin-bottom: .75rem; }
 pre { font: 12px/1.4 ui-monospace, Consolas, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem; overflow-x: auto; user-select: all; }
 #roll-paper img { width: min(100%, 420px); max-height: none; }
 table { width: 100%; border-collapse: collapse; font-size: .85rem; }

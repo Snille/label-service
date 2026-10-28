@@ -1,7 +1,6 @@
 // Admin page for the label service. Same-origin calls with the admin key, which is kept in memory only.
 const $ = id => document.getElementById(id);
-const sizeKeys = ['titleSize', 'descriptionSize', 'locationSize', 'locationLabelSize'];
-let key = '', settings = null, current = '', roll = null, preview = null, requestId = null, busy = false;
+let key = '', settings = null, current = '', roll = null, busy = false;
 // The roll whose test print is open, its preview and request id, and the journal as last read.
 let testing = '', rollPreview = null, rollRequestId = null, journal = [];
 // crypto.randomUUID exists only on https and localhost pages; the admin page is often opened over plain http on the LAN.
@@ -26,34 +25,21 @@ async function api(path, body, method = body === undefined ? 'GET' : 'POST') {
 async function run(action) {
   if (busy) return; busy = true; document.querySelectorAll('button').forEach(b => { b.dataset.was = b.disabled; b.disabled = true; });
   try { await action(); } catch (error) { message(error.message, true); }
-  finally { busy = false; document.querySelectorAll('button').forEach(b => { b.disabled = b.dataset.was === 'true'; }); $('print').disabled = !preview?.printable; if (settings) showRollTest(); }
+  finally { busy = false; document.querySelectorAll('button').forEach(b => { b.disabled = b.dataset.was === 'true'; }); if (settings) showRollTest(); }
 }
 const presetName = mediaKey => settings.mediaPresets.find(p => p.key === mediaKey)?.name || mediaKey;
 const printer = () => settings.config.printers.find(p => p.id === current);
 const modelOf = p => settings.models.find(m => m.key === p.model);
 const printerName = id => settings.config.printers.find(p => p.id === id)?.name || id || '';
 
-function showStyle() {
-  const style = printer().styles[$('style-media').value];
-  $('style-name').textContent = presetName($('style-media').value);
-  $('orientation').value = style.orientation;
-  for (const k of sizeKeys) $(k).value = style[k];
-}
-function readStyle() {
-  const style = printer().styles[$('style-media').value];
-  style.orientation = $('orientation').value;
-  for (const k of sizeKeys) style[k] = Number($(k).value);
-}
 function fill() {
   if (!settings.config.printers.some(p => p.id === current)) current = settings.config.defaultPrinter;
   $('printer').replaceChildren(...settings.config.printers.map(p => new Option(`${p.name} (${modelOf(p)?.name || p.model})`, p.id)));
   $('printer').value = current; $('printer-choice').hidden = settings.config.printers.length < 2;
-  const options = () => modelOf(printer()).media.map(k => new Option(presetName(k), k));
-  $('media').replaceChildren(...options()); $('media').value = printer().mediaKey;
-  $('style-media').replaceChildren(...options()); $('style-media').value = printer().mediaKey;
+  $('media').replaceChildren(...modelOf(printer()).media.map(k => new Option(presetName(k), k))); $('media').value = printer().mediaKey;
   $('batch-limit').value = settings.config.batchLimit;
   $('read-roll').hidden = !modelOf(printer()).rollReader;
-  showStyle(); showRolls(); showPrinters();
+  showRolls(); showPrinters();
 }
 
 function showRolls() {
@@ -63,7 +49,7 @@ function showRolls() {
     cell(tr, p.custom ? (p.status === 'approved' ? 'approved' : 'testing: needs its test print') : 'built in');
     cell(tr, marginsOf(p) || (p.custom ? 'not measured yet' : 'not measured'));
     // Built-in formats are measured with the same test print; only added rolls can be removed.
-    const test = button(p.margins ? 'Test again' : 'Test print', async () => { testing = p.key; rollPreview = null; showRollTest(); $('roll-test').scrollIntoView(); });
+    const test = button(p.margins ? 'Test again' : 'Test print', async () => { testing = p.key; rollPreview = null; showRollTest(); $('rolls-box').open = true; $('roll-test').scrollIntoView(); });
     cell(tr, actions(test, ...(p.custom ? [button('Remove', async () => {
       if (!confirm(`Remove the roll ${p.name}? Templates and printers must not use it.`)) return;
       await save(config => { config.rolls = config.rolls.filter(r => customKey(r) !== p.key); }, `Removed ${p.name}.`);
@@ -121,35 +107,46 @@ async function status() {
     ['Reasons', s.reasons.join(', ') || 'none'], ['CUPS driver', s.model || 'unknown'], ['Selected format', presetName(s.mediaKey)], ['Checked', new Date().toLocaleString()]];
   $('status').replaceChildren(...rows.flatMap(([k, v]) => { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; return [dt, dd]; }));
 }
-async function jobs() {
-  const { jobs } = await api('/jobs'); journal = jobs; showRollTest();
-  $('jobs').replaceChildren(...jobs.map(job => {
+// The newest five jobs, unless the admin asks for the whole journal.
+let allJobs = false;
+function showJobs() {
+  const shown = allJobs ? journal : journal.slice(0, 5);
+  $('all-jobs').hidden = journal.length <= 5;
+  $('all-jobs').textContent = allJobs ? 'Show the newest 5' : `Show all ${journal.length}`;
+  $('jobs').replaceChildren(...shown.map(job => {
     const tr = document.createElement('tr');
     const type = job.template ? `${job.template.id} v${job.template.version}` : job.kind;
     for (const v of [new Date(job.createdAt).toLocaleString(), job.client, type, printerName(job.printer), presetName(job.mediaKey), job.state, job.jobId ?? '']) { const td = document.createElement('td'); td.textContent = v; tr.append(td); }
     return tr;
   }));
 }
+async function jobs() {
+  ({ jobs: journal } = await api('/jobs')); showRollTest(); showJobs();
+}
 // A hex string as rows of 16 bytes: offset, bytes, and the printable characters.
 const dump = hex => (hex.match(/.{1,32}/g) || []).map((row, i) => {
   const bytes = row.match(/../g);
   return `${(i * 16).toString().padStart(3, ' ')}  ${bytes.join(' ').padEnd(47, ' ')}  ${bytes.map(b => { const c = parseInt(b, 16); return c >= 32 && c < 127 ? String.fromCharCode(c) : '.'; }).join('')}`;
 }).join('\n');
+function reading(r) {
+  const block = document.createElement('div'), title = document.createElement('p'), pre = document.createElement('pre');
+  title.textContent = `${new Date(r.observedAt).toLocaleString()} · ${printerName(r.printer)} · ${r.sku} · ${r.labelsRemaining} labels remaining`;
+  pre.textContent = `Consumable (ESC U, ${r.raw.consumable.length / 2} bytes)\n${dump(r.raw.consumable)}\n\nStatus (ESC A, ${r.raw.status.length / 2} bytes)\n${dump(r.raw.status)}`;
+  block.append(title, pre); return block;
+}
+// The newest reading is shown; the older ones stay folded away.
 async function readings() {
   const { readings } = await api('/roll/readings');
-  $('readings').replaceChildren(...(readings.length ? readings.map(r => {
-    const block = document.createElement('div'), title = document.createElement('p'), pre = document.createElement('pre');
-    title.textContent = `${new Date(r.observedAt).toLocaleString()} · ${printerName(r.printer)} · ${r.sku} · ${r.labelsRemaining} labels remaining`;
-    pre.textContent = `Consumable (ESC U, ${r.raw.consumable.length / 2} bytes)\n${dump(r.raw.consumable)}\n\nStatus (ESC A, ${r.raw.status.length / 2} bytes)\n${dump(r.raw.status)}`;
-    block.append(title, pre); return block;
-  }) : [Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No readings yet. Read the loaded roll above.' })]));
+  if (!readings.length) return $('readings').replaceChildren(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No readings yet. Read the loaded roll above.' }));
+  const [newest, ...older] = readings, rest = document.createElement('details'), summary = document.createElement('summary');
+  summary.textContent = `Older readings (${older.length})`; rest.append(summary, ...older.map(reading));
+  $('readings').replaceChildren(reading(newest), ...(older.length ? [rest] : []));
 }
-function invalidate() { preview = null; requestId = null; $('paper').replaceChildren(); $('print').disabled = true; }
 async function save(change, done) {
   const config = structuredClone(settings.config); change(config, config.printers.find(p => p.id === current));
   settings = await api('/settings', { revision: settings.revision, config }, 'PUT');
   // The settings are saved; a queue that cannot be reached is reported after the confirmation, not instead of it.
-  fill(); invalidate(); message(done);
+  fill(); message(done);
   try { await status(); } catch (error) { message(`${done} ${error.message}`, true); }
 }
 
@@ -158,46 +155,23 @@ $('login').addEventListener('submit', event => { event.preventDefault(); key = $
   // Show the journal even when CUPS is unreachable; the queue error is reported after it.
   await jobs(); await readings(); message(''); await status();
 }); });
-$('printer').addEventListener('change', () => run(async () => { current = $('printer').value; roll = null; $('roll').textContent = ''; $('use-roll').hidden = true; fill(); invalidate(); message(''); await status(); }));
+$('printer').addEventListener('change', () => run(async () => { current = $('printer').value; roll = null; $('roll').textContent = ''; fill(); message(''); await status(); }));
+$('all-jobs').addEventListener('click', () => { allJobs = !allJobs; showJobs(); });
 $('refresh').addEventListener('click', () => run(async () => { await status(); await jobs(); message(''); }));
 $('read-roll').addEventListener('click', () => run(async () => {
-  roll = null; $('use-roll').hidden = true; $('add-detected').hidden = true;
+  roll = null; $('add-detected').hidden = true;
   const result = await api('/roll', { revision: settings.revision, printer: current }); roll = result.roll;
+  // A known roll is selected by the service itself; show the settings it saved.
+  if (result.selected) { settings = await api('/settings'); fill(); }
   const size = roll.chip ? ` · the chip says ${roll.chip.widthMm} × ${roll.chip.lengthMm} mm${roll.chip.labelsPerRoll ? `, ${roll.chip.labelsPerRoll} labels per roll` : ''}` : '';
   $('roll').textContent = `${roll.sku} · ${roll.labelsRemaining} labels remaining · ${roll.media ? roll.media.name : 'no known format for this article'}${size} · read ${new Date(roll.observedAt).toLocaleString()}`;
-  $('use-roll').hidden = !roll.media || roll.media.key === printer().mediaKey;
   $('add-detected').hidden = Boolean(roll.media);
-  await readings(); $('readings-box').open = true;
-  message(roll.media && roll.media.key !== printer().mediaKey ? 'The loaded roll differs from the selected format.' : 'Roll read; release requested.');
+  await readings(); await status();
+  message(result.selected ? `Selected format: ${presetName(roll.media.key)}.` : roll.media && !result.fits ? `${modelOf(printer()).name} does not take this roll.` : 'Roll read; release requested.');
 }));
-$('use-roll').addEventListener('click', () => run(async () => {
-  await save((config, p) => { p.mediaKey = roll.media.key; }, `Selected format: ${presetName(roll.media.key)}.`); $('use-roll').hidden = true;
-}));
-$('style-media').addEventListener('change', () => { showStyle(); });
-for (const id of ['orientation', ...sizeKeys]) $(id).addEventListener('change', () => { readStyle(); invalidate(); });
 $('settings').addEventListener('submit', event => { event.preventDefault(); run(async () => {
-  readStyle(); const styles = structuredClone(printer().styles);
-  await save((config, p) => { p.mediaKey = $('media').value; p.styles = styles; config.batchLimit = Number($('batch-limit').value); }, 'Settings saved.');
+  await save((config, p) => { p.mediaKey = $('media').value; config.batchLimit = Number($('batch-limit').value); }, 'Settings saved.');
 }); });
-$('kind').addEventListener('change', invalidate);
-$('test-orientation').addEventListener('change', invalidate);
-$('preview').addEventListener('click', () => run(async () => {
-  invalidate();
-  const orientation = $('test-orientation').value;
-  preview = await api('/previews', { kind: $('kind').value, test: true, printer: current, mediaKey: printer().mediaKey, ...(orientation ? { orientation } : {}) });
-  requestId = uuid();
-  const img = document.createElement('img'), caption = document.createElement('figcaption');
-  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(preview.svg)}`; img.alt = 'Label preview';
-  caption.className = 'hint'; caption.textContent = `${preview.layout.name} · ${preview.layout.orientation}${preview.layout.rotated ? ' · rotated on the label' : ''}`;
-  $('paper').replaceChildren(img, caption);
-  message(preview.printable ? 'Preview ready. Print sends one label.' : preview.warnings.map(w => w.message).join(' '), !preview.printable);
-}));
-$('print').addEventListener('click', () => run(async () => {
-  // Keep the same identifier after a lost response: retrying can only return the original job.
-  const job = await api('/jobs', { token: preview.token, requestId });
-  preview = null; message(`Submitted: ${job.state}${job.jobId ? `, CUPS job ${job.jobId}` : ''}. Check the physical label before printing again.`);
-  await jobs();
-}));
 // An unknown roll: fill the add form from the chip. The admin checks the size and adds it; it starts as testing.
 $('add-detected').addEventListener('click', () => {
   $('roll-sku').value = roll.sku; $('roll-name').value = '';
@@ -242,13 +216,13 @@ $('roll-approve').addEventListener('submit', event => { event.preventDefault(); 
   const builtIns = affected.filter(a => a.status === 'built in');
   if (affected.length && !confirm(`These templates reach into the new margins and will not print on ${presetName(testing)} until they are changed:\n\n`
     + `${affected.map(a => `${a.name} (${a.id}${a.version ? ` v${a.version}, ${a.status}` : `, ${a.status}`}): ${a.objects.join(', ')}`).join('\n')}`
-    + `${builtIns.length ? '\n\nThe built-in labels cannot be changed: other systems would get refusals for them on this roll. They have printed right on paper, so check the margins you read first.' : ''}`
+    + `${builtIns.length ? '\n\nOther systems print the built-in labels and would get refusals for them on this roll until they are changed in Label Studio. They have printed right on paper, so check the margins you read first.' : ''}`
     + '\n\nApprove these margins anyway?')) {
     message('Not approved. Check the margins, or change those templates first.'); return;
   }
   settings = await api('/rolls/approve', request);
   for (const side of ['top', 'right', 'bottom', 'left']) $(`distance-${side}`).value = '';
-  fill(); invalidate();
+  fill();
   message(result.shrink
     ? `The printer shrank the print to ${Math.round(result.scale * 100)} %. The next test print uses an image ${(result.maxDots * 25.4 / 300).toFixed(1)} mm wide: print the test label again and measure it.`
     : `Saved ${presetName(testing)}: the image moves ${result.offset.x} mm across and ${result.offset.y} mm down, and the edges are ${marginsOf(result)}.${affected.length ? ` ${affected.length} template(s) need changes before they print on it.` : ''}`);

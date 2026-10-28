@@ -1,5 +1,16 @@
 # History
 
+## 0.16.0 - 2026-10-28
+
+The owner's division of work: Label Studio edits every template and label; label-service keeps printers, rolls, their calibration, the roll readings and the job log.
+
+- Reading the roll selects a known roll as the printer's format at once (if its model takes it), so nobody chooses it by hand after a roll change. `POST /api/v1/roll` answers `selected`, `fits` and the new settings revision; `revision` is optional.
+- A designer key may read the roll, so Label Studio has a Read roll button. The raw readings stay admin only. Nothing reads the roll on its own: DYMO Connect's automatic detection is what this service must not do.
+- The built-in labels can be edited in Label Studio: a saved template with the id `box`, `location` or `lines` replaces that label for `kind` once a version is published. It keeps the built-in fields and stays for any roll, so other systems print it as before. Archiving every version brings the original back.
+- A template whose every version is archived can be deleted (`DELETE /api/v1/templates/<id>`), so the pictures and fonts it used can be deleted too. Before, a template that was once published kept them for ever. The job journal keeps its id and version.
+- The admin page no longer edits text sizes and directions and no longer prints a test label; both belong in Label Studio. The saved sizes stay in the settings for `$titleSize` and the other format sizes. The selected format can still be chosen by hand for a printer that cannot read its roll.
+- The admin page is shorter. Rolls and Printers are folded until opened; Test again opens Rolls. The raw roll chip readings show the newest reading, with the older ones folded under it, and reading a roll no longer opens the list. Recent print jobs shows the newest five, with a button for the whole journal.
+
 ## 0.15.4 - 2026-10-27
 
 - A test print on a custom page no longer gives a narrower image. The owner's reading of the 19 × 51 mm roll (S0722550) came out 2-3 % short over its 9 mm frame, so 0.15.3 gave it a 360-dot page with the label centred on it; the printer puts the image at its left edge, so the drawing moved about 6 mm across, onto the fold. Only a named page shrinks (a printer with a narrow head); on a custom page a reading 95-102 % across is taken as true size, and one below 95 % is refused as a misreading. Such a 0.15.3 calibration is dropped, so the roll is measured anew with one test print.

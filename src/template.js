@@ -57,7 +57,7 @@ const placeholders = text => [...text.matchAll(/\{\{\s*([^}]*?)\s*\}\}/g)].map(m
 // media: the rolls a template may name (the approved ones); the built-in formats by default.
 export function validateTemplate(definition, media = labelMediaPresets) {
   only(definition, ['id', 'name', 'description', 'media', 'orientation', 'printDensity', 'fields', 'objects'], 'template');
-  if (!templateId.test(definition.id || '') || builtInTemplates.some(t => t.id === definition.id)) throw fail('id must be 2-64 lower-case letters, digits or hyphens and not a built-in name.');
+  if (!templateId.test(definition.id || '')) throw fail('id must be 2-64 lower-case letters, digits or hyphens.');
   if (!short(definition.name, 120) || !definition.name.trim()) throw fail('name is required (at most 120 characters).');
   if (definition.description !== undefined && !short(definition.description, 1000)) throw fail('description is at most 1000 characters.');
   if (!Array.isArray(definition.media) || !definition.media.length || definition.media.some(k => k !== '*' && !media.some(p => p.key === k))
@@ -137,6 +137,16 @@ export function validateTemplate(definition, media = labelMediaPresets) {
     if (item.valign !== undefined && !['top', 'middle', 'bottom'].includes(item.valign)) throw fail(`${name}.valign is top, middle or bottom.`);
     if (item.lineHeight !== undefined && !number(item.lineHeight, 0.8, 3)) throw fail(`${name}.lineHeight is 0.8-3.`);
     if (item.color !== undefined && !['black', 'white'].includes(item.color)) throw fail(`${name}.color is black or white.`);
+  }
+  // A saved template named box, location or lines replaces that built-in label. Other systems print it by kind on any
+  // roll with the built-in fields, so it keeps those fields and their types and stays for any roll.
+  const builtIn = builtInTemplates.find(t => t.id === definition.id);
+  if (builtIn) {
+    if (definition.media.length !== 1 || definition.media[0] !== '*') throw fail(`${definition.id} replaces a built-in label, so it is for any roll (media "*").`);
+    const names = Object.keys(builtIn.fields);
+    if (fields.length !== names.length || names.some(n => definition.fields[n]?.type !== builtIn.fields[n].type)) {
+      throw fail(`${definition.id} replaces a built-in label, so its fields are exactly ${names.map(n => `${n} (${builtIn.fields[n].type})`).join(', ')}.`);
+    }
   }
   return definition;
 }

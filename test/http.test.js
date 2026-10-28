@@ -87,7 +87,7 @@ test('templates are saved, published and printed through the HTTP API with role 
   assert.deepEqual(job.template, { id: 'shelf-tag', version: 1 }); assert.equal(prints(), 1);
   assert.equal((await call('/api/v1/formats?printer=missing', 'storage-key-for-tests')).status, 404);
 
-  // Deleting: designers only, and never a template that was published, even after it is archived.
+  // Deleting: designers only; a published template only once every version is archived.
   const del = (id, key) => call(`/api/v1/templates/${id}`, key, { method: 'DELETE' });
   await post('/api/v1/templates', 'studio-key-for-tests-only', { definition: { ...definition, id: 'scratch-tag' } });
   await post('/api/v1/templates', 'studio-key-for-tests-only', { definition: { ...definition, id: 'scratch-tag' } });
@@ -97,10 +97,11 @@ test('templates are saved, published and printed through the HTTP API with role 
   assert.equal((await del('scratch-tag', 'storage-key-for-tests')).status, 403);
   assert.deepEqual(await (await del('scratch-tag', 'studio-key-for-tests-only')).json(), { id: 'scratch-tag', deleted: 2 });
   assert.equal((await del('scratch-tag', 'studio-key-for-tests-only')).status, 404);
-  assert.equal((await post('/api/v1/templates/shelf-tag/versions/1/archive', 'studio-key-for-tests-only', {})).status, 200);
   assert.equal((await del('shelf-tag', 'studio-key-for-tests-only')).status, 409);
+  assert.equal((await post('/api/v1/templates/shelf-tag/versions/1/archive', 'studio-key-for-tests-only', {})).status, 200);
   const archived = (await (await call('/api/v1/templates', 'studio-key-for-tests-only')).json()).templates.find(t => t.id === 'shelf-tag');
   assert.deepEqual([archived.archived, archived.everPublished], [true, true]);
+  assert.deepEqual(await (await del('shelf-tag', 'studio-key-for-tests-only')).json(), { id: 'shelf-tag', deleted: 1 });
   assert.equal((await call('/api/v1/templates/shelf-tag/versions', 'studio-key-for-tests-only', { method: 'DELETE' })).status, 404);
 });
 

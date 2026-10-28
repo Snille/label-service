@@ -283,3 +283,62 @@ test('a version 1 database gains the templates and pictures tables and keeps its
     try { assert.equal(store.audit().schemaVersion, 4); assert.deepEqual(store.templateIds(), []); assert.deepEqual(store.assets(), []); assert.deepEqual(store.fonts(), []); } finally { store.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('reading a known roll selects its format, and a designer may read the roll', async t => {
+  const { service } = setup(t);
+  update(service, c => { c.printers[0].rollReader = { enabled: true, host: 'printer.example', port: 9100 }; });
+  service.rollReader = async () => ({ sku: 'S0722550', labelsRemaining: 80, observedAt: '2026-10-28T08:00:00.000Z', raw: { status: '00', consumable: 'b6ca' } });
+  const before = service.revision(), read = await service.readRoll({});
+  assert.deepEqual([read.selected, read.fits, service.config().printers[0].mediaKey], [true, true, 'w54h144']);
+  assert.notEqual(read.revision, before); assert.equal(read.revision, service.revision());
+  // The same roll again changes nothing; an unknown roll is reported and leaves the format alone.
+  service.lastRollCheck.clear();
+  assert.equal((await service.readRoll({ revision: service.revision() })).selected, false); assert.equal(service.revision(), read.revision);
+  service.lastRollCheck.clear(); service.rollReader = async () => ({ sku: 'S0799999', labelsRemaining: 1, raw: { status: '00', consumable: '00' } });
+  const unknown = await service.readRoll({});
+  assert.deepEqual([unknown.roll.media, unknown.selected, service.config().printers[0].mediaKey], [null, false, 'w54h144']);
+});
+
+test('a saved template named after a built-in label replaces it once published, and archiving brings the original back', async t => {
+  const { service } = setup(t);
+  const original = service.template('box', undefined, designer);
+  assert.equal(original.builtIn, true);
+  const edited = { ...structuredClone(original.definition), name: 'Box label (ours)', orientation: 'landscape' };
+  edited.objects[0].size = 14;
+  // It keeps the built-in fields and stays for any roll, since other systems print it by kind.
+  assert.throws(() => service.saveTemplate({ definition: { ...edited, media: ['w162h90'] } }, designer), /any roll/);
+  const fewer = structuredClone(edited); delete fewer.fields.description; fewer.objects.splice(1, 1);
+  assert.throws(() => service.saveTemplate({ definition: fewer }, designer), /exactly title/);
+  const draft = service.saveTemplate({ definition: edited }, designer);
+  assert.deepEqual([draft.id, draft.version, draft.status], ['box', 1, 'draft']);
+  // A draft does not print for other systems: kind box is still the original.
+  const fields = { title: 'Kablar', description: '', location: 'A1' };
+  assert.equal((await preview(service, 'storagesystem', { kind: 'box', fields })).kind, 'box');
+  assert.equal(service.templates('storagesystem').templates.filter(t => t.id === 'box').length, 1);
+  service.setTemplateStatus('box', 1, 'published', designer);
+  const listed = service.templates('storagesystem').templates.filter(t => t.id === 'box');
+  assert.deepEqual([listed.length, listed[0].builtIn, listed[0].replaced, listed[0].name, listed[0].kind], [1, true, true, 'Box label (ours)', 'box']);
+  const p = await preview(service, 'storagesystem', { kind: 'box', fields });
+  assert.deepEqual([p.kind, p.template?.id, p.template?.version, p.printable], ['template', 'box', 1, true]);
+  assert.equal(p.layout.items.find(i => i.id === 'title')?.size ?? 14, 14);
+  service.setTemplateStatus('box', 1, 'archived', designer);
+  assert.equal((await preview(service, 'storagesystem', { kind: 'box', fields })).kind, 'box');
+  assert.equal(service.templates(designer).templates.find(t => t.id === 'box').archived, true);
+});
+
+test('a published template can be deleted once every version is archived, and its picture is freed', async t => {
+  const { service } = setup(t);
+  const { encodeRgba } = await import('../src/png.js');
+  const asset = await service.uploadAsset({ name: 'logo', data: encodeRgba(8, 4, Buffer.alloc(8 * 4 * 4, 255)).toString('base64') }, designer);
+  const definition = { id: 'with-logo', name: 'With logo', media: ['*'], fields: {}, objects: [{ id: 'logo', type: 'image', x: 2, y: 2, w: 20, h: 10, asset: asset.id }] };
+  service.saveTemplate({ definition }, designer); service.setTemplateStatus('with-logo', 1, 'published', designer);
+  service.saveTemplate({ definition: { ...definition, name: 'With logo 2' } }, designer);
+  assert.throws(() => service.deleteAsset(asset.id, designer), /used by with-logo/);
+  // A published or draft version left means other systems may still print it.
+  assert.throws(() => service.deleteTemplate('with-logo', designer), /Archive every version first/);
+  service.setTemplateStatus('with-logo', 1, 'archived', designer);
+  assert.throws(() => service.deleteTemplate('with-logo', designer), /Archive every version first/);
+  service.setTemplateStatus('with-logo', 2, 'archived', designer);
+  assert.deepEqual(service.deleteTemplate('with-logo', designer), { id: 'with-logo', deleted: 2 });
+  assert.deepEqual(service.deleteAsset(asset.id, designer), { id: asset.id, deleted: 1 });
+});

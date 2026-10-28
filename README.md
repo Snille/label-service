@@ -2,7 +2,7 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.15.4, live together with Label Studio 0.12.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts; 0.15 calibrates each roll so labels print at true size and in place (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.16.0, live together with Label Studio 0.13.0. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts; 0.15 calibrates each roll so labels print at true size and in place; 0.16 selects a read roll by itself, lets Label Studio read the roll and edit the built-in labels, and leaves only printers, rolls, readings and jobs on the admin page (see [history](docs/HISTORY.md)).
 
 ## Why one owner
 
@@ -94,7 +94,7 @@ The environment sets the first settings. After an admin saves settings through t
 
 ## Admin page
 
-Open the service in a browser and enter the admin key. The page shows the CUPS queue of the chosen printer, reads the loaded roll (`Use the detected format` selects it) and shows the last readings with the chip's raw answers, sets the selected format and each format's text direction and sizes, sets the batch limit, adds and removes rolls and prints and approves their test prints, adds and removes printers, previews and prints one test label, and lists recent jobs. The key stays in the tab's memory only.
+Open the service in a browser and enter the admin key. The page shows the CUPS queue of the chosen printer, reads the loaded roll (a known roll becomes the selected format at once) and shows the newest reading with the chip's raw answers, sets the selected format by hand for a printer that cannot read its roll, sets the batch limit, adds and removes rolls and prints and approves their test prints, adds and removes printers, and lists the newest five jobs (all on request). Rolls and Printers are folded until opened. Templates, the built-in labels included, are edited in Label Studio. The text sizes and directions saved per format before 0.16 stay in the settings: the built-in labels use them through `$titleSize` and the other format sizes. The key stays in the tab's memory only.
 
 ## API
 
@@ -110,7 +110,7 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `GET /api/v1/templates/<id>/versions` | designer, drafter | All versions with their status. |
 | `POST /api/v1/templates` | designer, drafter | `{definition}` → a new draft version (1, 2, ...). |
 | `POST /api/v1/templates/<id>/versions/<n>/publish`, `.../archive` | designer | Publish or archive one version. |
-| `DELETE /api/v1/templates/<id>` | designer | Delete every version of a template that was never published (409 otherwise: archive it instead). |
+| `DELETE /api/v1/templates/<id>` | designer | Delete every version of a template that was never published or whose every version is archived (409 otherwise: archive every version first). This frees the pictures and fonts it used; the job journal keeps its id and version. |
 | `GET /api/v1/assets`, `POST /api/v1/assets` | designer, drafter | List pictures; upload `{name, data, page?, crop?}` with the picture as base64 → `{id, name, type, width, height, bytes, createdAt, createdBy}`. PNG, JPEG, SVG, or one page of a PDF (`page`, 1 by default; drawn by poppler at up to 300 dpi, the record adds `page` and `pages`). `crop` `{x, y, w, h}`, shares from 0 to 1, keeps part of any picture. At most 2 MB. |
 | `GET /api/v1/assets/<id>/content` | designer, drafter | The stored PNG. |
 | `GET /api/v1/fonts`, `POST /api/v1/fonts` | designer, drafter (list) / designer (upload) | List uploaded fonts; upload `{name, data}` with a font or zip file as base64 → `{fonts: [{id, name, family, style, subfamily, format, glyphs, bytes, restricted?, createdAt, createdBy}], skipped: [{name, reason}]}`. |
@@ -121,7 +121,7 @@ Send the key as `x-api-key: <key>` or `Authorization: Bearer <key>`. Bodies are 
 | `POST /api/v1/jobs` | client | `{token, requestId}` (UUIDs) → the journal record. Prints one copy. |
 | `GET /api/v1/jobs`, `GET /api/v1/jobs/<requestId>` | client (own) / admin (all) | Journal records, with live CUPS job state for one job. |
 | `GET`, `PUT /api/v1/settings` | admin | `{revision, config}`: `serverUrl`, `defaultPrinter`, `batchLimit`, `rolls`, `measured` (the built-in formats' margins) and `printers`. A new roll is saved as `testing`; only the approve call makes it approved. |
-| `POST /api/v1/roll` | admin | `{revision, printer?}`. Reads the loaded roll once; needs an idle, empty queue. |
+| `POST /api/v1/roll` | admin, designer | `{revision?, printer?}`. Reads the loaded roll once; needs an idle, empty queue. A known roll that the printer's model takes becomes its selected format: the answer has `selected`, `fits` and the new settings `revision`. Label Studio's Read roll button calls it; nothing reads the roll on its own. |
 | `GET /api/v1/roll/readings` | admin | The last 20 roll readings: printer, time, article, labels remaining and the chip's whole answers as hex (`raw.consumable` from ESC U, `raw.status` from ESC A). |
 | `POST /api/v1/rolls/approve` | admin | `{revision, key, requestId, distances: {left, right, top, bottom}}`: calibrates a roll from its newest test print (a `calibration` job on that roll that reached CUPS): the distances in mm from each edge of the label to its frame line. Answers the settings view and `result`: `{shrink, scale, maxDots}` (print the test label again) or `{scale, offset, margins}`. An added roll or a built-in format. With `check: true` it saves nothing and answers `{result, affected}`, the built-in kinds and saved templates (newest version) that would reach into the new margins. |
 
@@ -129,6 +129,7 @@ Preview request: `{kind? | template?, version?, fields | test: true | rows, chec
 
 - `kind: "calibration"` with `test: true` is the test print of the loaded roll, for the admin only.
 - `kind` is a built-in template: `box` (`title`, `description`, `location`), `location` (only `location`, printed large) or `lines` (`{lines: [{text, bold?, size?}]}`, 1-12 lines, 6-16 points, shrunk together until they fit; an empty `text` is a spacer).
+- A designer may save a template with the id `box`, `location` or `lines`. It keeps that label's fields and types and is for any roll (`media: ["*"]`). Its newest published version prints for `kind` instead of the original; drafts do not. When every version is archived, the original prints again. `GET /api/v1/templates` lists such a label once, as built in, with its versions and `replaced: true` while a published version replaces it.
 - `template` is a saved template id (the latest published version unless `version` is given), or, for designers and drafters, a whole unsaved definition.
 - `warnings` lists what stops printing, per object: `{object, message}`, for example `"recipient" needs 4 rows, but 3 fit at 7 pt`. `layout.lines` keeps the original row list (text, centre x, baseline y, size, bold, width) for clients that draw their own preview.
 - `include: ['png']` adds a 300 dpi PNG of the label (base64).

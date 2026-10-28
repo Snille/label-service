@@ -172,7 +172,7 @@ export class PrintService {
   // out with their sample values in their own text direction or the one each printer saved for the roll.
   marginUsers(config, key) {
     const media = allMedia(config).find(p => p.key === key), affected = [];
-    const candidates = [...builtInTemplates.map(definition => ({ definition, ref: { id: definition.id, name: definition.name, status: 'built in' } })),
+    const candidates = [...builtInTemplates.filter(t => !this.publishedReplacement(t.id)).map(definition => ({ definition, ref: { id: definition.id, name: definition.name, status: 'built in' } })),
       ...this.store.templateIds().map(id => this.store.templateVersions(id).at(-1)).filter(t => t.definition.media.includes('*') || t.definition.media.includes(key))
         .map(t => ({ definition: t.definition, ref: { id: t.id, name: t.name, version: t.version, status: t.status } }))];
     const styles = [...new Map(config.printers.map(p => p.styles[key]).filter(Boolean).map(s => [JSON.stringify(s), s])).values()];
@@ -206,25 +206,35 @@ export class PrintService {
     const status = await this.printer(config, printer).status(); this.assertRevision(revision);
     return { ...status, printer: printer.id, name: printer.name, printerModel: printer.model, queue: printer.queue, mediaKey: printer.mediaKey };
   }
+  // Reads the loaded roll (the admin page, or Studio with a designer key). A known roll that the printer's model takes
+  // becomes its selected format at once, so nobody has to choose it by hand; the answer carries the new settings
+  // revision. revision is optional: the admin page sends it, so a reading never mixes with settings it has not seen.
   async readRoll(input) {
     object(input);
     if (Object.keys(input).some(k => !['revision', 'printer'].includes(k))) throw new InputError('Unsupported roll-reading request.');
-    this.assertRevision(input.revision); const config = this.config(), printer = this.printerConfig(config, input.printer);
+    if (input.revision !== undefined) this.assertRevision(input.revision);
+    const revision = this.revision(), config = this.config(), printer = this.printerConfig(config, input.printer);
     if (!printer.rollReader?.enabled) throw new InputError('Enable and save the DYMO roll reader first.', 409);
     if (this.busy.has(printer.id) || Date.now() - (this.lastRollCheck.get(printer.id) || 0) < 5000 || Date.now() - (this.lastPrint.get(printer.id) || 0) < this.settleMs) {
       throw new InputError('Wait before reading the roll again.', 429);
     }
     this.busy.add(printer.id); this.lastRollCheck.set(printer.id, Date.now());
     try {
-      const queue = await this.printer(config, printer).status(); this.assertRevision(input.revision);
+      const queue = await this.printer(config, printer).status(); this.assertRevision(revision);
       if (queue.state !== 'idle' || queue.queuedJobs !== 0) throw new InputError('Read the roll only while the CUPS queue is idle and empty.', 409);
       const roll = await this.rollReader(printer.rollReader);
       // The reading is kept even if the settings changed meanwhile: it describes the roll, not the settings.
       if (roll?.raw) this.store.addRollReading({ printer: printer.id, observedAt: roll.observedAt || new Date().toISOString(), sku: roll.sku, labelsRemaining: roll.labelsRemaining, raw: roll.raw });
-      this.assertRevision(input.revision);
       // The roll reader knows the built-in formats; added rolls are found by their article number too.
       roll.media = allMedia(config).find(p => p.sku === roll.sku) || null; roll.sizeSource = roll.media ? 'sku-preset' : 'unknown';
-      return { roll, printer: printer.id, revision: input.revision };
+      const fits = roll.media && mediaForModel(printer.model, allMedia(config)).some(p => p.key === roll.media.key);
+      const selected = Boolean(fits && roll.media.key !== printer.mediaKey);
+      if (selected) this.store.transaction(() => {
+        this.assertRevision(revision);
+        const next = structuredClone(config); next.printers.find(p => p.id === printer.id).mediaKey = roll.media.key;
+        validatePrinting(next); this.store.writePrinting(next);
+      }); else this.assertRevision(revision);
+      return { roll, printer: printer.id, selected, fits: Boolean(fits), revision: this.revision() };
     } finally { this.busy.delete(printer.id); }
   }
 
@@ -237,15 +247,22 @@ export class PrintService {
       return canDraft(client) ? { ...summary(published || versions.at(-1)), latest: summary(versions.at(-1)),
         archived: versions.every(v => v.status === 'archived'), everPublished: versions.some(wasPublished) } : published && summary(published);
     }).filter(Boolean);
-    return { templates: [...labelTemplates, ...saved] };
+    // A built-in label edited in Studio is listed once, as built in, with its saved versions; replaced says that a
+    // published version prints instead of the original. With every version archived, the original prints.
+    const own = new Map(saved.map(t => [t.id, t]));
+    const builtIns = labelTemplates.map(t => own.has(t.id) ? { ...own.get(t.id), ...t, name: own.get(t.id).name, replaced: own.get(t.id).status === 'published' } : t);
+    return { templates: [...builtIns, ...saved.filter(t => !builtInTemplates.some(b => b.id === t.id))] };
   }
+  // A built-in label prints as built in until a saved version of it is published, and again once every one is archived.
+  publishedReplacement(id) { return this.store.templateVersions(id).filter(v => v.status === 'published').at(-1); }
   template(id, version, client = 'client') {
     client = who(client);
     const builtIn = builtInTemplates.find(t => t.id === id);
-    if (builtIn) return { id, name: builtIn.name, builtIn: true, version: 1, status: 'published', definition: builtIn };
     const versions = templateId.test(id) ? this.store.templateVersions(id) : [];
     const visible = versions.filter(v => canDraft(client) || v.status === 'published');
-    const record = version === undefined ? (visible.filter(v => v.status === 'published').at(-1) || (canDraft(client) ? visible.at(-1) : undefined)) : visible.find(v => v.version === version);
+    const record = version === undefined ? (visible.filter(v => v.status === 'published').at(-1) || (!builtIn && canDraft(client) ? visible.at(-1) : undefined))
+      : visible.find(v => v.version === version);
+    if (!record && builtIn) return { id, name: builtIn.name, builtIn: true, version: 1, status: 'published', definition: builtIn };
     if (!record) throw new InputError('Template not found.', 404);
     return record;
   }
@@ -401,14 +418,17 @@ export class PrintService {
     return picture;
   }
 
-  // Only a template that was never published can be deleted: no other system can depend on it. Published ones are archived.
+  // A template can be deleted when no other system can print it: it was never published, or every version is archived.
+  // Deleting it frees the pictures and fonts it used. The job journal keeps its id and version.
   deleteTemplate(id, client) {
     client = who(client);
     if (client.role !== 'designer') throw new InputError('Deleting templates requires a designer key.', 403);
     return this.store.transaction(() => {
       const versions = templateId.test(id) ? this.store.templateVersions(id) : [];
       if (!versions.length) throw new InputError('Template not found.', 404);
-      if (versions.some(wasPublished)) throw new InputError('This template has been published, so other systems may use it. Archive its versions instead.', 409);
+      if (versions.some(wasPublished) && !versions.every(v => v.status === 'archived')) {
+        throw new InputError('This template has been published, so other systems may use it. Archive every version first, then delete it.', 409);
+      }
       return { id, deleted: this.store.deleteTemplate(id) };
     });
   }
