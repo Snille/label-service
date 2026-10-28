@@ -43,7 +43,7 @@ services:
   # Label Studio, the template designer (separate repository). It calls the API over the stack network with its own
   # client key, so add studio=<key> to LABEL_CLIENT_KEYS and studio=designer to LABEL_CLIENT_ROLES.
   studio:
-    image: ${LABEL_STUDIO_IMAGE:-mrsnille/label-studio:0.13.0}
+    image: ${LABEL_STUDIO_IMAGE:-mrsnille/label-studio:0.13.1}
     depends_on: [api]
     ports:
       # Publish on the LAN only; never forward this port from the internet.
