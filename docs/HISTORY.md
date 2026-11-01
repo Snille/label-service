@@ -1,5 +1,14 @@
 # History
 
+## Unreleased - 2026-11-01
+
+Preparing the repository to become public. No change to the service.
+
+- README: a short list of what the service does, screenshots of the admin page and of Label Studio's editor (from a local test stack without a printer), all barcode types, the Label Studio service in the stack and its variables, and that the ports are for the LAN only. Removed a repeated sentence and the outdated note that built-in labels cannot be changed.
+- `.env.example`: the browser origin comment no longer speaks of a future designer.
+- Checked the files and the whole git history for keys: none. LAN addresses, a server name and a local path in old commits (0.1-0.5) were replaced in the history (rewritten 2026-11-01; every commit and tag has a new hash).
+- MIT License (`LICENSE`, and `license` in `package.json`), and a licence section in the README.
+
 ## 0.16.0 - 2026-10-28
 
 The owner's division of work: Label Studio edits every template and label; label-service keeps printers, rolls, their calibration, the roll readings and the job log.

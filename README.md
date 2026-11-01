@@ -2,7 +2,24 @@
 
 A small LAN print service for DYMO LabelWriter printers. It is the **only** program that talks to the printers. Other systems send label content to its HTTP API; the service lays the label out from a template, shows a preview, and submits exactly one copy through CUPS. Label Studio (a separate web app) designs the templates.
 
-Status: `VERSION` 0.16.0, live together with Label Studio 0.13.1. 0.5 replaced the renderer and added saved templates and several printers; 0.6 adds barcodes, 2D codes and dates; 0.7 deletes templates that were never published; 0.8 adds pictures; 0.9 prints them in the driver's graphics quality; 0.10 adds checks without a token; 0.11 prints a batch as one job; 0.12 reads PDF pages as pictures and adds Code 39, EAN-8, UPC-A and ITF-14; 0.13 adds rolls and printers from the admin page; 0.14 adds uploaded fonts; 0.15 calibrates each roll so labels print at true size and in place; 0.16 selects a read roll by itself, lets Label Studio read the roll and edit the built-in labels, and leaves only printers, rolls, readings and jobs on the admin page (see [history](docs/HISTORY.md)).
+Status: `VERSION` 0.16.0, in daily use with a LabelWriter 5XL together with [Label Studio](https://github.com/Snille/label-studio) 0.13.1. What changed in each version is in the [history](docs/HISTORY.md).
+
+What it does, in short:
+
+- Prints labels from saved templates (text, lines, boxes, barcodes, QR and Data Matrix codes, dates and pictures) or from three built-in labels (box, location, free lines).
+- Renders every label as an exact preview first. Nothing that does not fit prints.
+- Prints exactly one copy per request, never twice, and keeps a journal of every job.
+- Prints a batch from many rows as one job, and a page of a PDF as a picture.
+- Reads the roll's chip on request, so the loaded roll is known, and calibrates each roll so labels print at true size.
+- Gives each calling system its own key; the admin page keeps printers, rolls and jobs.
+
+![The admin page: printer, loaded roll, rolls and their calibration, printers and recent jobs](docs/screenshots/admin.png)
+
+Templates are designed in Label Studio:
+
+![Label Studio's editor with label-service's preview on the right](docs/screenshots/label-studio-editor.png)
+
+The screenshots come from a local test stack with no printer.
 
 ## Why one owner
 
@@ -23,7 +40,7 @@ A label is one SVG drawing. The layout engine measures text with the real glyph 
 
 Designers upload more fonts (`POST /api/v1/fonts`): a TrueType, OpenType or WOFF file, or a zip file with several, at most 8 MB. Each file is one style of a family, read from the font's own names (name IDs 1 and 2, as programs list regular, bold, italic and bold italic) and style bits; a zip adds every font it holds and names the files it skipped. WOFF2 is refused. A family may not take the name of a built-in one, and a style that is there already is refused, so delete it first to replace it. Fonts are kept in the database (schema 4) and are measured and drawn like the shipped ones. A font that a saved template uses cannot be deleted. Upload only fonts you may use; the record marks a font whose maker allows no embedding (`restricted`).
 
-Barcodes (Code 128, EAN-13) and 2D codes (QR, Data Matrix) are encoded with `bwip-js` and drawn by the layout as rectangles in whole printer dots (300 dpi): linear bars are at least two dots wide, 2D modules at least three, so codes print sharp. A box too small for that is a fit problem, not a blurred code.
+Barcodes (Code 128, Code 39, EAN-13, EAN-8, UPC-A, ITF-14) and 2D codes (QR, Data Matrix) are encoded with `bwip-js` and drawn by the layout as rectangles in whole printer dots (300 dpi): linear bars are at least two dots wide, 2D modules at least three, so codes print sharp. A box too small for that is a fit problem, not a blurred code.
 
 Pictures (PNG, JPEG or SVG, at most 2 MB) are uploaded once and stored as PNG in the database; `rsvg-convert` turns JPEG and SVG into PNG (an SVG 1600 pixels wide) and never loads files or addresses an SVG points to. On a label the picture is resampled to whole printer dots and made black and white with a threshold or with Floyd-Steinberg dithering, so the preview shows the exact dots that print.
 
@@ -60,7 +77,7 @@ So each roll is calibrated with its test print. With a calliper, the admin measu
 - If they show the print shrunk (below 98 %), the roll gets a narrower image: at most as many dots as the printer printed (`maxDots`), with the label centred on a custom page that wide. Print the test label again and measure once more. (With the wider custom page this should not happen any more.)
 - Otherwise the drawing is moved by the mean error of its two edges on each axis (`offset`), and the edges that do not print follow from where the page lands on paper, at least 1 mm on every side (`margins`).
 
-Then clients see the roll and templates can use it. An object that reaches into a margin is a fit problem, like one outside the label. The built-in labels keep 3 mm at the sides or the measured edge if it is wider. An object that reaches into a margin is a fit problem, like one outside the label. The built-in formats are measured the same way: their test print and approval are on the same page, they keep printing meanwhile, and their calibration is saved in the settings (`measured`). Before a roll's margins are saved, the admin page lists the templates, built-in ones included, that reach into them and would stop printing on that roll; the built-in labels cannot be changed, so such margins deserve a second look. A roll that a printer has loaded or a saved template names cannot be removed.
+Then clients see the roll and templates can use it. An object that reaches into a margin is a fit problem, like one outside the label. The built-in labels keep 3 mm at the sides or the measured edge if it is wider. The built-in formats are measured the same way: their test print and approval are on the same page, they keep printing meanwhile, and their calibration is saved in the settings (`measured`). Before a roll's margins are saved, the admin page lists the templates, built-in ones included, that reach into them and would stop printing on that roll; fix those templates in Label Studio. A roll that a printer has loaded or a saved template names cannot be removed.
 
 ## Run locally (Docker Desktop)
 
@@ -144,7 +161,7 @@ A template places objects on the readable label. Lengths are millimetres or perc
 
 ```json
 {
-  "id": "shipping-small", "name": "Fraktetikett liten", "media": ["w154h286"], "orientation": "portrait",
+  "id": "shipping-small", "name": "Shipping label small", "media": ["w154h286"], "orientation": "portrait",
   "fields": {
     "recipient": { "type": "text", "maxLength": 200, "multiline": true },
     "orderNo": { "type": "text", "pattern": "^[0-9]{6,10}$", "required": false }
@@ -181,13 +198,13 @@ Built-in formats: S0722540 (57 × 32 mm), S0722550 (19 × 51 mm), S0722520 (25 �
 
 ## Portainer
 
-Published images (Docker Hub, `linux/amd64`): `mrsnille/label-service` and `mrsnille/label-service-cups`, tagged with the version and `latest`. Deploy [compose.portainer.yaml](compose.portainer.yaml) as a stack; it uses the current release tags by default. Set these stack variables:
+Published images (Docker Hub, `linux/amd64`): `mrsnille/label-service` and `mrsnille/label-service-cups`, tagged with the version and `latest`. Deploy [compose.portainer.yaml](compose.portainer.yaml) as a stack (Portainer, or `docker compose` with the variables in an `.env` file); it holds `cups`, `api` and Label Studio (`studio`, port 3231, image `mrsnille/label-studio`) and uses the current release tags by default. Set these stack variables:
 
-- `LABEL_ADMIN_KEY` and `LABEL_CLIENT_KEYS`: long random keys, one client key per calling system. Optional `LABEL_CLIENT_ROLES`.
+- `LABEL_ADMIN_KEY` and `LABEL_CLIENT_KEYS`: long random keys, one client key per calling system (for example `studio=<key>,storagesystem=<key>`). Optional `LABEL_CLIENT_ROLES`, for Label Studio `studio=designer`.
 - `PRINTER_HOST`: the printer's LAN address. Optional `PRINTER_MODEL` (default `lw5xl`) and `PRINTER_NAME`.
-- Optional: `LABEL_BIND`, `LABEL_PORT`, `CUPS_QUEUE`, `LABEL_ALLOWED_ORIGINS`, or `LABEL_API_IMAGE` / `LABEL_CUPS_IMAGE` to pin a digest.
+- Optional: `LABEL_BIND`, `LABEL_PORT`, `STUDIO_BIND`, `STUDIO_PORT`, `CUPS_QUEUE`, `LABEL_ALLOWED_ORIGINS`, `TZ`, or `LABEL_API_IMAGE` / `LABEL_CUPS_IMAGE` / `LABEL_STUDIO_IMAGE` to pin a digest. Without Label Studio, remove the `studio` service.
 
-Publish port 3230 on the LAN only. Keep the volumes on local storage. The `queues` volume (0.13.0) holds only the queue list of added printers; both images create its folder for the api user, so a new volume works whichever container starts first. To update, raise the image tags (or re-pull `latest`) and recreate the stack.
+Publish ports 3230 and 3231 on the LAN only. The service has no user accounts, only keys, and is not made for the internet. Keep the volumes on local storage. The `queues` volume (0.13.0) holds only the queue list of added printers; both images create its folder for the api user, so a new volume works whichever container starts first. To update, raise the image tags (or re-pull `latest`) and recreate the stack.
 
 Release: bump `VERSION`, add a history entry, run the checks, then build and push both images:
 
@@ -208,3 +225,7 @@ node src/cli.js restore <backup> <new-database>
 ```
 
 The Docker build runs the same tests, including the PDF and PNG conversion with `rsvg-convert` (skipped on a machine without it). Hardware checks that never print: `GET /api/v1/status`, previews, `Validate-Job`, and offline raster conversion with `cupsfilter -m application/vnd.cups-raster` inside the `cups` container. The DYMO filters need a live printer connection, so the last step can only be checked with a real print.
+
+## Licences
+
+label-service is under the [MIT License](LICENSE). The fonts in `fonts/` are Liberation (SIL Open Font License 1.1) and DejaVu (free licence); their licence files are next to them. The `cups` image downloads and builds DYMO's own Linux driver, which keeps its own licence. The npm dependencies `opentype.js` and `bwip-js` are MIT.

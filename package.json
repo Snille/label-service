@@ -1,5 +1,6 @@
 {
   "name": "label-service",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": {
